@@ -12,6 +12,9 @@ function go(to) {
 }
 let current = 1;
 
+// Clear any persisted results when starting a fresh check
+window.StateManager?.clearState?.();
+
 form?.addEventListener('click', (e) => {
   const nextBtn = e.target.closest('.next');
   const prevBtn = e.target.closest('.prev');
@@ -188,7 +191,7 @@ async function injectConditionQuestions() {
     } else {
       box.hidden = true;
     }
-  }, { once: true }); // attach once; radios/checkboxes will bubble
+  });
 }
 
 function collectConditionAnswers() {
@@ -208,16 +211,83 @@ function collectConditionAnswers() {
   return data;
 }
 
+const RED_FLAG_MAPPINGS = {
+  headache: {
+    thunderclap: ans => ans.onset === 'Yes',
+    neurological_deficit: ans => ans.neuro === 'Yes',
+    head_injury: ans => ans.injury === 'Yes',
+    meningism: ans => ans.meningism === 'Yes',
+    pregnancy_severe: ans => ans.pregnancySevere === 'Yes',
+    age_new_50: ans => ans.age50 === 'Yes',
+    progressive: ans => ans.duration === '> 7 days' || ans.duration === '> 14 days'
+  },
+  hayfever: {
+    wheeze_breathless: ans => ans.breathing === 'Yes',
+    severe_epistaxis: ans => ans.nosebleeds === 'Yes',
+    severe_eye_pain: ans => ans.eyeSymptoms === 'Yes'
+  },
+  indigestion: {
+    dysphagia: ans => ans.swallowing === 'Yes',
+    gi_bleed: ans => ans.bleeding === 'Yes',
+    unexplained_weight_loss: ans => ans.weightLoss === 'Yes',
+    chest_pain_exertional: ans => ans.chestPain === 'Yes',
+    new_over55: ans => ans.age55 === 'Yes'
+  },
+  diarrhoea: {
+    blood_in_stool: ans => ans.blood === 'Yes',
+    high_fever: ans => ans.fever === 'Yes',
+    dehydration: ans => ans.dehydration === 'Yes',
+    duration_3days: ans => ans.duration === '3-5 days' || ans.duration === '> 5 days',
+    recent_antibiotics: ans => ans.antibiotics === 'Yes',
+    travel_with_fever: ans => ans.travel === 'Yes',
+    pregnancy: (ans, payload) => ans.pregnancy === 'Yes' || /pregnant/i.test(payload?.who || '')
+  },
+  sorethroat: {
+    airway_compromise: ans => ans.breathing === 'Yes',
+    severe_unilateral: ans => ans.unilateral === 'Yes',
+    rash_fever: ans => ans.rash === 'Yes',
+    duration_7days: ans => ans.duration === '> 7 days'
+  }
+};
+
+function normaliseAnswersForEngine(conditionKey, answers, payloadContext) {
+  const rawCopy = { ...answers };
+  const normalised = { ...rawCopy };
+  const rules = RED_FLAG_MAPPINGS[conditionKey];
+
+  if (rules) {
+    Object.entries(rules).forEach(([flagId, predicate]) => {
+      let triggered = false;
+      try {
+        triggered = Boolean(predicate(rawCopy, payloadContext));
+      } catch (err) {
+        console.warn('Failed to evaluate red flag predicate', flagId, err);
+        triggered = false;
+      }
+      if (triggered) {
+        normalised[flagId] = true;
+      } else {
+        delete normalised[flagId];
+      }
+    });
+  }
+
+  normalised.__rawAnswers = rawCopy;
+  return normalised;
+}
+
 function gatherPayload() {
-  return {
-    condition: document.getElementById('condition')?.value || '',
-    who: document.getElementById('ww_who')?.value || '',
-    duration: document.getElementById('ww_howlong')?.value || '',
-    what: document.getElementById('ww_what')?.value?.trim() || '',
-    action: document.getElementById('ww_action')?.value?.trim() || '',
-    meds: document.getElementById('ww_medication')?.value?.trim() || '',
-    answers: collectConditionAnswers()
-  };
+  const condition = document.getElementById('condition')?.value || '';
+  const who = document.getElementById('ww_who')?.value || '';
+  const duration = document.getElementById('ww_howlong')?.value || '';
+  const what = document.getElementById('ww_what')?.value?.trim() || '';
+  const action = document.getElementById('ww_action')?.value?.trim() || '';
+  const meds = document.getElementById('ww_medication')?.value?.trim() || '';
+  const answers = collectConditionAnswers();
+
+  const payload = { condition, who, duration, what, action, meds };
+  payload.answers = normaliseAnswersForEngine(condition, answers, payload);
+  return payload;
 }
 
 function checkCondition(cond, ans) {

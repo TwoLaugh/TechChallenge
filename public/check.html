@@ -7,6 +7,7 @@
   <meta name="description" content="Chat-based WWHAM intake with safety screens and OTC guidance." />
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="css/chat.css" />
+  <link rel="stylesheet" href="css/check.css" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
@@ -33,35 +34,153 @@
   </header>
 
   <main id="main" class="section container">
-    <div class="chat card">
-      <div class="chat-header">
-        <div class="dot"></div>
-        <div>
-          <h1>Symptom Check</h1>
-              <p id="chat-subtitle" class="muted small">Type what's wrong in your own words. I'll ask a few follow-ups (WWHAM) and check for red flags.</p>
-        </div>
+    <div class="grid two">
+      <div class="chat card">
+        <div class="chat-header">
+          <div class="dot"></div>
+          <div>
+            <h1>Symptom Check</h1>
+            <p id="chat-subtitle" class="muted small">Type what's wrong in your own words. I'll ask a few follow-ups (WWHAM) and check for red flags.</p>
+          </div>
           <div class="llm-toggle-row">
             <button id="restart" class="btn btn-primary small restart-btn" type="button" aria-label="Restart symptom check">Restart</button>
           </div>
-      </div>
-
-      <div id="messages" class="messages" role="log" aria-live="polite"></div>
-
-      <form id="composer" class="composer" autocomplete="off">
-        <div class="quick-row" id="quick-row">
-          <button type="button" class="chip" data-chip="I have a throbbing headache since yesterday">Headache</button>
-          <button type="button" class="chip" data-chip="My hay fever is bad, itchy nose and sneezing">Hay fever</button>
-          <button type="button" class="chip" data-chip="I have burning in my chest after meals">Heartburn</button>
-          <button type="button" class="chip" data-chip="I've had diarrhoea for two days">Diarrhoea</button>
-          <button type="button" class="chip" data-chip="My throat is sore and hurts to swallow">Sore throat</button>
         </div>
 
-        <label class="visually-hidden" for="input">Your message</label>
-        <textarea id="input" rows="2" placeholder="Describe your symptoms… (e.g., 'I've had a bad headache since last night and took paracetamol')"></textarea>
-        <button id="send" class="btn btn-primary" type="submit">Send</button>
-      </form>
+        <div id="messages" class="messages" role="log" aria-live="polite"></div>
 
-      <p class="muted small disclaimer-text">Educational prototype. Not medical advice.</p>
+        <form id="composer" class="composer" autocomplete="off">
+          <div class="quick-row" id="quick-row">
+            <button type="button" class="chip" data-chip="I have a throbbing headache since yesterday">Headache</button>
+            <button type="button" class="chip" data-chip="My hay fever is bad, itchy nose and sneezing">Hay fever</button>
+            <button type="button" class="chip" data-chip="I have burning in my chest after meals">Heartburn</button>
+            <button type="button" class="chip" data-chip="I've had diarrhoea for two days">Diarrhoea</button>
+            <button type="button" class="chip" data-chip="My throat is sore and hurts to swallow">Sore throat</button>
+          </div>
+
+          <label class="visually-hidden" for="input">Your message</label>
+          <textarea id="input" rows="2" placeholder="Describe your symptoms… (e.g., 'I've had a bad headache since last night and took paracetamol')"></textarea>
+          <button id="send" class="btn btn-primary" type="submit">Send</button>
+        </form>
+
+        <p class="muted small disclaimer-text">Educational prototype. Not medical advice.</p>
+      </div>
+
+      <section class="card soft">
+        <header>
+          <h2>Guided WWHAM checklist</h2>
+          <p class="muted small">Prefer a structured flow? Step through the essentials and we&rsquo;ll surface any red flags automatically.</p>
+        </header>
+
+        <ol class="stepper" aria-label="Symptom check steps">
+          <li class="current" data-step="1">1. Condition</li>
+          <li data-step="2">2. WWHAM</li>
+          <li data-step="3">3. Safety</li>
+          <li data-step="4">4. Review</li>
+        </ol>
+
+        <form id="check-form" class="stack" autocomplete="off">
+          <section class="step" data-step="1">
+            <h3>Step 1: What can we help with?</h3>
+            <p class="hint">Choose the symptom area so we can tailor the follow-up questions.</p>
+            <div class="field">
+              <label for="condition">Condition</label>
+              <select id="condition" name="condition" required>
+                <option value="">Select a condition…</option>
+                <option value="headache">Headache</option>
+                <option value="hayfever">Hay fever</option>
+                <option value="indigestion">Indigestion / heartburn</option>
+                <option value="diarrhoea">Diarrhoea</option>
+                <option value="sorethroat">Sore throat</option>
+              </select>
+            </div>
+
+            <div class="actions">
+              <button type="button" class="btn btn-primary next">Next</button>
+            </div>
+          </section>
+
+          <section class="step" data-step="2" hidden>
+            <h3>Step 2: WWHAM questions</h3>
+            <p class="hint">Answer the classic pharmacy intake prompts so we understand the basics.</p>
+
+            <div class="grid two">
+              <div class="field">
+                <label for="ww_who">Who is the patient?</label>
+                <select id="ww_who" name="who" required>
+                  <option value="">Select an option…</option>
+                  <option value="adult">Adult</option>
+                  <option value="teen 13–17">Teen 13–17</option>
+                  <option value="child 5–12">Child 5–12</option>
+                  <option value="toddler 1–4">Toddler 1–4</option>
+                  <option value="infant <1">Infant &lt; 1 year</option>
+                  <option value="pregnant">Pregnant</option>
+                  <option value="breastfeeding">Breastfeeding</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="ww_howlong">How long has this been going on?</label>
+                <select id="ww_howlong" name="duration" required>
+                  <option value="">Select a duration…</option>
+                  <option value="< 24 hours">Less than 24 hours</option>
+                  <option value="1-3 days">1-3 days</option>
+                  <option value="4-7 days">4-7 days</option>
+                  <option value="&gt; 7 days">More than 7 days</option>
+                  <option value="Recurrent / frequent">Recurrent / frequent</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="ww_what">What are the symptoms?</label>
+              <textarea id="ww_what" name="what" rows="3" required placeholder="e.g., throbbing headache, light sensitivity"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="ww_action">What have they already tried?</label>
+              <textarea id="ww_action" name="action" rows="2" placeholder="e.g., paracetamol 1 g at 8am"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="ww_medication">Other medicines currently taken</label>
+              <textarea id="ww_medication" name="meds" rows="2" placeholder="e.g., antihistamines, blood pressure tablets"></textarea>
+            </div>
+
+            <div class="actions">
+              <button type="button" class="btn btn-ghost prev">Back</button>
+              <button type="button" class="btn btn-primary next">Next</button>
+            </div>
+          </section>
+
+          <section class="step" data-step="3" hidden>
+            <h3>Step 3: Condition safety questions</h3>
+            <p class="hint">We&rsquo;ll highlight any responses that mean pharmacy or medical escalation.</p>
+            <div id="condition-questions" class="stack" aria-live="polite"></div>
+            <div id="alerts" class="card soft" hidden>
+              <h4>Potential red flags</h4>
+              <ul id="alert-list"></ul>
+            </div>
+
+            <div class="actions">
+              <button type="button" class="btn btn-ghost prev">Back</button>
+              <button type="button" class="btn btn-primary next">Next</button>
+            </div>
+          </section>
+
+          <section class="step" data-step="4" hidden>
+            <h3>Step 4: Review answers</h3>
+            <p class="hint">Check everything looks right before we show the tailored guidance.</p>
+            <div id="review" class="review card soft" aria-live="polite"></div>
+            <p id="finish-error" class="muted small" role="alert" hidden></p>
+
+            <div class="actions">
+              <button type="button" class="btn btn-ghost prev">Back</button>
+              <button id="finish" type="button" class="btn btn-primary">Finish &amp; view results</button>
+            </div>
+          </section>
+        </form>
+      </section>
     </div>
   </main>
 
@@ -78,6 +197,8 @@
 
   <script src="js/app.js"></script>
   <script src="js/modules/engine.js"></script> <!-- medication recommendation engine -->
+  <script src="js/modules/state-manager.js"></script>
+  <script src="js/pages/check.js"></script> <!-- structured WWHAM flow -->
   <script src="js/pages/chat.js"></script> <!-- simplified conversational chat system -->
   <script src="js/modules/ux-enhancements.js" defer></script>
 </body>

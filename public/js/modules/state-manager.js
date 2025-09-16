@@ -7,6 +7,7 @@ class StateManager {
         sessionStorage.setItem('what', state.what);
         sessionStorage.setItem('duration', state.duration);
         sessionStorage.setItem('meds', state.meds);
+        sessionStorage.setItem('action', state.action ?? '');
         sessionStorage.setItem('answers', JSON.stringify(state.answers || {}));
         sessionStorage.setItem('flags', JSON.stringify(state.flags || []));
         sessionStorage.setItem('cautions', JSON.stringify(state.cautions || []));
@@ -19,6 +20,7 @@ class StateManager {
             what: sessionStorage.getItem('what'),
             duration: sessionStorage.getItem('duration'),
             meds: sessionStorage.getItem('meds'),
+            action: sessionStorage.getItem('action'),
             answers: JSON.parse(sessionStorage.getItem('answers') || '{}'),
             flags: JSON.parse(sessionStorage.getItem('flags') || '[]'),
             cautions: JSON.parse(sessionStorage.getItem('cautions') || '[]')
@@ -31,6 +33,7 @@ class StateManager {
         sessionStorage.removeItem('what');
         sessionStorage.removeItem('duration');
         sessionStorage.removeItem('meds');
+        sessionStorage.removeItem('action');
         sessionStorage.removeItem('answers');
         sessionStorage.removeItem('flags');
         sessionStorage.removeItem('cautions');

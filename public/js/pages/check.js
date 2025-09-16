@@ -25,8 +25,55 @@ form?.addEventListener('click', (e) => {
 });
 
 document.getElementById('finish')?.addEventListener('click', () => {
-  console.log('Finished demo. This prototype does not submit data.');
-  // Could redirect to results or show completion message
+  if (!form?.reportValidity()) return;
+
+  const errorEl = document.getElementById('finish-error');
+  if (errorEl) {
+    errorEl.hidden = true;
+    errorEl.textContent = '';
+  }
+
+  const payload = gatherPayload();
+  if (!payload.condition) {
+    if (errorEl) {
+      errorEl.textContent = 'Please choose a condition before finishing the check.';
+      errorEl.hidden = false;
+    }
+    return;
+  }
+
+  try {
+    if (!window.Engine?.evaluate) {
+      throw new Error('The recommendation engine is still loading. Please wait a moment and try again.');
+    }
+
+    const result = window.Engine.evaluate(payload);
+    if (!result) {
+      throw new Error('Unable to generate guidance right now. Please try again.');
+    }
+
+    window.StateManager?.saveCheckState?.({
+      condition: payload.condition,
+      who: payload.who,
+      what: payload.what,
+      duration: payload.duration,
+      meds: payload.meds,
+      action: payload.action,
+      answers: payload.answers,
+      flags: result.flags || [],
+      cautions: result.cautions || []
+    });
+
+    window.location.href = 'results.html';
+  } catch (err) {
+    console.error('Failed to finish structured check', err);
+    if (errorEl) {
+      errorEl.textContent = err.message || 'Something went wrong finishing the check. Please try again.';
+      errorEl.hidden = false;
+    } else {
+      alert(err.message || 'Unable to finish the symptom check right now.');
+    }
+  }
 });
 
 // ----------------------
@@ -145,6 +192,7 @@ async function injectConditionQuestions() {
 }
 
 function collectConditionAnswers() {
+  if (!form) return {};
   const data = {};
   const inputs = form.querySelectorAll('[data-step="3"] input, [data-step="3"] select, [data-step="3"] textarea');
   inputs.forEach(el => {
@@ -158,6 +206,18 @@ function collectConditionAnswers() {
     }
   });
   return data;
+}
+
+function gatherPayload() {
+  return {
+    condition: document.getElementById('condition')?.value || '',
+    who: document.getElementById('ww_who')?.value || '',
+    duration: document.getElementById('ww_howlong')?.value || '',
+    what: document.getElementById('ww_what')?.value?.trim() || '',
+    action: document.getElementById('ww_action')?.value?.trim() || '',
+    meds: document.getElementById('ww_medication')?.value?.trim() || '',
+    answers: collectConditionAnswers()
+  };
 }
 
 function checkCondition(cond, ans) {

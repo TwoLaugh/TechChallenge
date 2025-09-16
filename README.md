@@ -16,29 +16,26 @@ The app aims to:
 ```
 TechChallenge/
 ├── public/                    # Frontend assets (served statically)
-│   ├── *.html                # HTML pages
-│   ├── css/                  # Stylesheets
-│   ├── js/                   # JavaScript files
-│   │   ├── app.js           # Main application bootstrap
-│   │   ├── modules/         # Reusable modules
-│   │   │   ├── engine.js    # Medication recommendation engine
-│   │   │   ├── state-manager.js # Application state management
-│   │   │   ├── nlu.js       # Natural language understanding
-│   │   │   ├── result-helpers.js # Results display helpers
-│   │   │   └── ux-enhancements.js # UI enhancements
-│   │   └── pages/           # Page-specific scripts
-│   │       ├── chat.js      # Chat interface
-│   │       ├── check.js     # Symptom checker
-│   │       └── results.js   # Results display
-│   └── data/                # Static data files
-│       ├── bnf.json        # Medication database
-│       └── bnf_counselling.json # Counselling information
-├── server/                   # Backend server (optional LLM proxy)
-│   ├── index.js             # Express server
-│   ├── package.json         # Server dependencies
-│   ├── node_modules/        # Backend runtime dependencies
-│   └── .env.example         # Environment variables template
-└── .vscode/                 # VS Code configuration
+│   ├── *.html                # HTML pages (index, check, results, contact…)
+│   ├── css/                  # Stylesheets for layout/chat/results
+│   ├── data/                 # Condition configuration & OTC dataset
+│   └── js/
+│       ├── app.js            # Shared UI helpers
+│       ├── modules/          # Reusable modules
+│       │   ├── engine.js     # Medication recommendation engine
+│       │   ├── state-manager.js # Session persistence
+│       │   ├── nlu.js        # Heuristic natural language layer
+│       │   └── result-helpers.js # Results page utilities
+│       └── pages/            # Page-specific controllers
+│           ├── check.js      # Structured WWHAM flow
+│           ├── chat.js       # Conversational intake
+│           └── results.js    # Rich results layout
+├── server/                   # Optional Express proxy for LLM summarisation
+│   ├── index.js
+│   └── package.json
+├── package.json              # Frontend tooling (lint/format)
+├── dev-server.js             # Convenience static server (optional)
+└── README.md
 ```
 
 **Note**: This project has two `node_modules/` directories by design:
@@ -112,10 +109,10 @@ npm run format        # Format code with Prettier
 ```
 
 ### File Organization
-- **public/**: All files that should be served to browsers
-- **archive/**: Legacy files kept for reference
-- **docs/**: Project documentation
-- **server/**: Optional backend server
+- **public/**: Static site (HTML, CSS, JS modules, datasets)
+- **server/**: Optional Express proxy that turns engine output into an LLM-friendly prompt
+- **package.json**: Frontend lint/format tooling configuration
+- **dev-server.js**: Lightweight Node static server for local demos
 
 ---
 
@@ -123,22 +120,20 @@ npm run format        # Format code with Prettier
 - Modern browsers (Chrome 90+, Firefox 88+, Safari 14+, Edge 90+)
 - ES2022 features used (modern JavaScript)
 - No build step required for basic functionality
-├── docs/ # Project documentation (roadmap, frameworks, research)
-├── tests/ # Unit and integration tests
-│
-├── .gitignore
-├── README.md
-└── requirements.txt
 
 
 ---
 
 ## Roadmap
-- **Week 1**: Build UI skeleton (symptom checker, login, static pages).  
-- **Week 2**: Implement core agents and integrate data (BNF, WWHAM).  
-- **Week 3**: Add additional features and refine interactions.  
-- **Week 4**: Testing, debugging, and presentation preparation.  
-- **Week 5**: Submission and demo.  
+- **Short term**: Broaden condition coverage and enrich red-flag pathways using real-world pharmacy feedback.
+- **Medium term**: Add secure user accounts so multiple checks can be stored and revisited across devices.
+- **Long term**: Swap the heuristic chat assistant for a production-safe LLM flow once governance and monitoring are in place.
+
+---
+
+## Known limitations
+- The contact page is a demo-only form. Submissions are not sent to a backend service; the button simply acknowledges the click for accessibility testing.
+- The `/api/llm` proxy is optional. If no API key is configured the chat flow falls back to the built-in rule-based summary.
 
 ---
 

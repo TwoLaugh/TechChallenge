@@ -224,45 +224,67 @@ const state = {
   condition: null,
   flags: [],
   cautions: [],
-  currentQuestion: null // Track what we're currently asking
+  currentQuestion: null, // Track what we're currently asking
+  lastPayload: null
 };
 
 // ---------- Message Analysis ----------
+function describeNluFlag(pattern) {
+  if (!pattern) return null;
+  if (/vomit|stool|blood/i.test(pattern)) return 'Mentioned blood in vomit or stool.';
+  if (/chest|abdominal/i.test(pattern)) return 'Mentioned severe chest or abdominal pain.';
+  if (/collapse|unconscious/i.test(pattern)) return 'Mentioned collapse or loss of consciousness.';
+  if (/stiff neck|rash/i.test(pattern)) return 'Mentioned meningitis warning signs (stiff neck or rash).';
+  return 'Mentioned a potential red flag symptom.';
+}
+
 function analyzeMessage(text) {
   const t = text.toLowerCase();
-  const analysis = {
+  const heuristics = {
     condition: classifyCondition(text),
     duration: extractDuration(text),
     who: null,
     action: null,
-    meds: null,
-    redFlags: []
+    meds: null
   };
 
-  // Extract who this is for
-  if(/adult|grown.?up|myself|me|my|i/i.test(t)) analysis.who = 'adult';
-  else if(/teen|teenager|13|14|15|16|17/i.test(t)) analysis.who = 'teen 13–17';
-  else if(/child|kid|son|daughter|8|9|10|11|12/i.test(t)) analysis.who = 'child 5–12';
-  else if(/toddler|little one|2|3|4.year/i.test(t)) analysis.who = 'toddler 1–4';
-  else if(/baby|infant|newborn|under.?1/i.test(t)) analysis.who = 'infant <1';
-  else if(/pregnant|pregnancy|expecting/i.test(t)) analysis.who = 'pregnant';
-  else if(/breastfeeding|nursing|breast.?feeding/i.test(t)) analysis.who = 'breastfeeding';
+  if (/adult|grown.?up|myself|me|my|i/i.test(t)) heuristics.who = 'adult';
+  else if (/teen|teenager|13|14|15|16|17/i.test(t)) heuristics.who = 'teen 13–17';
+  else if (/child|kid|son|daughter|8|9|10|11|12/i.test(t)) heuristics.who = 'child 5–12';
+  else if (/toddler|little one|2|3|4.year/i.test(t)) heuristics.who = 'toddler 1–4';
+  else if (/baby|infant|newborn|under.?1/i.test(t)) heuristics.who = 'infant <1';
+  else if (/pregnant|pregnancy|expecting/i.test(t)) heuristics.who = 'pregnant';
+  else if (/breastfeeding|nursing|breast.?feeding/i.test(t)) heuristics.who = 'breastfeeding';
 
-  // Extract what they've tried
-  if(/nothing|none|haven.?t tried/i.test(t)) analysis.action = 'none';
-  else if(/paracetamol|tylenol/i.test(t)) analysis.action = 'paracetamol';
-  else if(/ibuprofen|advil|nurofen/i.test(t)) analysis.action = 'ibuprofen';
-  else if(/tried.*(rest|sleep|lying)/i.test(t)) analysis.action = 'rest';
+  if (/nothing|none|haven.?t tried/i.test(t)) heuristics.action = 'none';
+  else if (/paracetamol|tylenol/i.test(t)) heuristics.action = 'paracetamol';
+  else if (/ibuprofen|advil|nurofen/i.test(t)) heuristics.action = 'ibuprofen';
+  else if (/tried.*(rest|sleep|lying)/i.test(t)) heuristics.action = 'rest';
 
-  // Extract current medications
-  if(/no.?(medicine|medication|meds)|nothing|none/i.test(t)) analysis.meds = 'none';
+  if (/no.?(medicine|medication|meds)|nothing|none/i.test(t)) heuristics.meds = 'none';
 
-  // Simple red flag detection
-  if(/worst.ever|thunderclap|sudden.severe/i.test(t)) analysis.redFlags.push('severe headache');
-  if(/blood|bleeding/i.test(t)) analysis.redFlags.push('bleeding');
-  if(/can.?t breathe|chest pain|collapse/i.test(t)) analysis.redFlags.push('emergency symptoms');
+  const nlu = window.NLU?.analyze?.(text, state) || {};
+  const combinedFlags = new Set();
 
-  return analysis;
+  if (/worst.ever|thunderclap|sudden.severe/i.test(t)) combinedFlags.add('Sudden severe headache mentioned.');
+  if (/blood|bleeding/i.test(t)) combinedFlags.add('Bleeding symptoms mentioned.');
+  if (/can.?t breathe|chest pain|collapse/i.test(t)) combinedFlags.add('Possible emergency symptoms mentioned.');
+
+  if (Array.isArray(nlu.redFlags)) {
+    nlu.redFlags.forEach(flag => {
+      const desc = describeNluFlag(flag);
+      if (desc) combinedFlags.add(desc);
+    });
+  }
+
+  return {
+    condition: heuristics.condition || nlu.condition || null,
+    duration: heuristics.duration || nlu.duration || null,
+    who: nlu.who || heuristics.who || null,
+    action: nlu.action || heuristics.action || null,
+    meds: nlu.meds || heuristics.meds || null,
+    redFlags: Array.from(combinedFlags)
+  };
 }
 
 function getNextQuestion() {
@@ -317,6 +339,11 @@ function updateStateFromAnalysis(analysis) {
   return updated;
 }
 
+function addFlag(message) {
+  if (!message) return;
+  if (!state.flags.includes(message)) state.flags.push(message);
+}
+
 // More precise extraction to catch specific answers
 function fillSlotFromText(text, currentStep) {
   const t = text.toLowerCase().trim();
@@ -357,18 +384,18 @@ function evaluateSafety(text) {
   
   // Check for red flags based on condition and general symptoms
   if (state.condition === 'headache' && /worst.ever|thunderclap|head.injury|weakness|confusion|vision/i.test(t)) {
-    state.flags.push('Headache red flags — seek urgent advice (pharmacist/GP/111).');
+    addFlag('Headache red flags — seek urgent advice (pharmacist/GP/111).');
   }
   if (state.condition === 'indigestion' && /trouble.swallow|vomit.*blood|black.stool|severe.pain/i.test(t)) {
-    state.flags.push('Indigestion red flags — urgent medical assessment needed.');
+    addFlag('Indigestion red flags — urgent medical assessment needed.');
   }
   if (state.condition === 'diarrhoea' && /blood|high.fever|severe.pain|week/i.test(t)) {
-    state.flags.push('Diarrhoea red flags — seek medical advice.');
+    addFlag('Diarrhoea red flags — seek medical advice.');
   }
-  
+
   // General emergency symptoms
   if(/chest.pain|can.?t.breathe|collapse|vomit.*blood/i.test(t)) {
-    state.flags.push('Emergency symptoms — call 999 or go to A&E immediately.');
+    addFlag('Emergency symptoms — call 999 or go to A&E immediately.');
   }
 }
 
@@ -413,7 +440,7 @@ function handleUserMessage(text){
   
   // Add any red flags found
   if (analysis.redFlags.length) {
-    state.flags.push(...analysis.redFlags);
+    analysis.redFlags.forEach(addFlag);
   }
   
   // If we found something new, acknowledge it
@@ -446,27 +473,66 @@ function handleUserMessage(text){
 
 function handleSafetyCheck(text){
   evaluateSafety(text);
-  
+
   // Generate final advice
   const payload = {
     condition: state.condition,
     who: state.who,
-    howlong: state.duration,
+    duration: state.duration,
     what: state.what,
     action: state.action,
     meds: state.meds,
     answers: {}
   };
-  
-  const result = window.Engine?.evaluate ? window.Engine.evaluate(payload) : { 
-    title:'General', advice:[], selfCare:[], cautions:[], flags:[] 
+
+  state.lastPayload = payload;
+
+  const result = window.Engine?.evaluate ? window.Engine.evaluate(payload) : {
+    title:'General', advice:[], selfCare:[], cautions:[], flags:[]
   };
-  
+
   // Merge our flags with engine flags
   result.flags = Array.from(new Set([...(result.flags||[]), ...state.flags]));
   result.cautions = Array.from(new Set([...(result.cautions||[]), ...state.cautions]));
-  
-  showFinalAdvice(result);
+
+  showFinalAdvice(result, payload);
+}
+
+function sanitizeLLMHtml(html) {
+  if (!html) return '';
+  try {
+    const parser = new window.DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    doc.querySelectorAll('script,style,link,meta,iframe').forEach(el => el.remove());
+    return doc.body.innerHTML;
+  } catch (err) {
+    console.warn('Failed to sanitise LLM response', err);
+    return '';
+  }
+}
+
+async function fetchLLMSummary(payload, engineResult) {
+  if (!window.fetch) return null;
+  const prompt = `Summarise the over-the-counter guidance for ${payload.condition || 'this condition'} in one short paragraph. Highlight any red flags and keep the tone supportive.`;
+  try {
+    const response = await fetch('/api/llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, engineResult })
+    });
+    if (!response.ok) {
+      if (response.status !== 501) {
+        console.info('LLM proxy responded with status', response.status);
+      }
+      return null;
+    }
+    const data = await response.json();
+    const safe = sanitizeLLMHtml(data.text || '');
+    return safe || null;
+  } catch (err) {
+    console.warn('Unable to reach LLM proxy', err);
+    return null;
+  }
 }
 
 function showRelevantChips(type) {
@@ -485,9 +551,9 @@ function showRelevantChips(type) {
   }
 }
 
-function showFinalAdvice(result) {
+function showFinalAdvice(result, payload) {
   const t = addTyping();
-  setTimeout(() => {
+  setTimeout(async () => {
     // Build proper medical advice display like the original system
     let medAdvice = '';
     const summaryHtml = `<strong>Summary</strong><br>Condition: ${state.condition || '-'}<br>Who: ${state.who || '-'}<br>Duration: ${state.duration || '-'}<br>Action taken: ${state.action || '-'}<br>Current meds: ${state.meds || '-'}<br><br>`;
@@ -556,27 +622,44 @@ function showFinalAdvice(result) {
     const bullets = (arr)=> arr.map(x=>`• ${x}`).join('<br>');
     
     let finalHtml = summaryHtml + medAdvice;
-    
+
     if (result.cautions?.length) {
       finalHtml += `<h4 style="color: #d97706; margin: 12px 0 6px 0;">⚠️ Cautions</h4>${bullets(result.cautions)}<br><br>`;
     }
-    
+
     if (result.flags?.length) {
       finalHtml += `<h4 style="color: #dc2626; margin: 12px 0 6px 0;">🚨 Red Flags - Seek Medical Attention</h4>${bullets(result.flags)}<br><br>`;
     }
-    
+
     finalHtml += `<div style="background: #f0f9ff; border: 1px solid #0ea5e9; border-radius: 8px; padding: 12px; margin: 12px 0;">
       <p style="margin: 0; color: #0c4a6e;"><strong>Next Steps:</strong> You can ask me more questions or start a new consultation.</p>
     </div>`;
-    
-    replaceTyping(t, finalHtml);
+
+    const llmSummary = await fetchLLMSummary(payload || state.lastPayload || {}, result);
+    if (llmSummary) {
+      finalHtml = `<div class="med-summary"><h3>🤖 Conversation summary</h3>${llmSummary}</div>` + finalHtml;
+    }
+
+    window.StateManager?.saveCheckState?.({
+      condition: payload?.condition || state.condition,
+      who: payload?.who || state.who,
+      what: state.what,
+      duration: payload?.duration || state.duration,
+      meds: payload?.meds || state.meds,
+      action: payload?.action || state.action,
+      answers: payload?.answers || {},
+      flags: result.flags || [],
+      cautions: result.cautions || []
+    });
+
+    replaceTyping(t, finalHtml + `<div class="chat-actions" style="margin-top: 12px;"><a class="btn btn-primary" href="results.html">View printable results</a></div>`);
     state.step = 'chat'; // Allow continuing the conversation
     clearSuggestionChips();
-    
+
     // Save state for results page
     sessionStorage.setItem('checkPayload', JSON.stringify({
-      condition: state.condition, who: state.who, howlong: state.duration,
-      what: state.what, action: state.action, meds: state.meds, answers: {}
+      condition: state.condition, who: state.who, duration: state.duration, howlong: state.duration,
+      what: state.what, action: state.action, meds: state.meds, answers: payload?.answers || {}
     }));
   }, 1000);
 }
@@ -603,9 +686,10 @@ restartEl.addEventListener('click', ()=>{
     if (Array.isArray(state[k])) state[k]=[];
     else state[k]=null;
   });
-  state.step='greet'; 
+  state.step='greet';
   state.what='';
   state.currentQuestion=null;
+  window.StateManager?.clearState?.();
   messagesEl.innerHTML='';
   greet();
   clearSuggestionChips();

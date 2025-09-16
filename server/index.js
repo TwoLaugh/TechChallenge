@@ -6,6 +6,18 @@ const port = process.env.PORT || 3001;
 
 app.use(express.json());
 
+// Allow cross-origin requests from static front-end servers during development
+const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', allowedOrigin);
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Simple health
 app.get('/health', (req, res) => res.json({ok:true, time: Date.now()}));
 

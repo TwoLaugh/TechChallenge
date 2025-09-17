@@ -169,11 +169,31 @@ function handleRecapRequest(){
   botSpeak(pieces.join(' '));
   const next = getNextQuestion();
   if(next){
-    state.currentQuestion = next.type === 'safety' ? null : next.type;
-    const t = addTyping();
-    setTimeout(() => replaceTyping(t, next.text), 800);
-    showRelevantChips(next.type);
+    promptNextQuestion(next, 800);
   }
+}
+
+function promptNextQuestion(next = getNextQuestion(), delay = 800){
+  if(!next) {
+    state.currentQuestion = null;
+    clearSuggestionChips();
+    return;
+  }
+
+  if(next.type === 'safety'){
+    state.step = 'safety';
+    state.currentQuestion = null;
+    const t = addTyping();
+    setTimeout(() => replaceTyping(t, next.text), delay);
+    clearSuggestionChips();
+    return;
+  }
+
+  state.step = 'chat';
+  state.currentQuestion = next.type;
+  const t = addTyping();
+  setTimeout(() => replaceTyping(t, next.text), delay);
+  showRelevantChips(next.type);
 }
 
 function buildClosingSummary(){
@@ -728,12 +748,27 @@ function promptDurationClarification(){
 }
 
 // ---------- Flow Control ----------
-function greet(){
-  ORIENTATION_MESSAGES.forEach((msg, idx) => {
-    setTimeout(() => botSpeak(msg), idx * 2000);
+function speakSequence(messages, gap = 400){
+  if(!Array.isArray(messages) || !messages.length) return 0;
+
+  let accumulated = 0;
+  messages.forEach(msg => {
+    const speakDelay = Math.min(1200 + (msg.length * 6), 2200);
+    setTimeout(() => botSpeak(msg), accumulated);
+    accumulated += speakDelay + gap;
   });
-  setTimeout(() => botSpeak(getRandomResponse(RESPONSES.greetings)), ORIENTATION_MESSAGES.length * 2000);
+
+  return Math.max(0, accumulated - gap);
+}
+
+function greet(){
+  clearSuggestionChips();
+  const sequence = [...ORIENTATION_MESSAGES, getRandomResponse(RESPONSES.greetings)];
+  const totalDelay = speakSequence(sequence, 500);
   state.step = 'chat';
+  setTimeout(() => {
+    promptNextQuestion(undefined, 600);
+  }, totalDelay + 200);
 }
 
 function handleUserMessage(text){
@@ -819,15 +854,7 @@ function handleUserMessage(text){
       else botSpeak(getRandomResponse(RESPONSES.acknowledgments), { delay: 300 });
 
       setTimeout(() => {
-        const next = getNextQuestion();
-        if (next.type === 'safety') {
-          state.step = 'safety';
-        } else {
-          state.currentQuestion = next.type;
-        }
-        const t = addTyping();
-        setTimeout(() => replaceTyping(t, next.text), 800);
-        showRelevantChips(next.type);
+        promptNextQuestion(undefined, 800);
       }, 1000);
       return;
     }
@@ -872,23 +899,8 @@ function handleUserMessage(text){
     return;
   }
 
-  const next = getNextQuestion();
-
-  if (next.type === 'safety') {
-    state.step = 'safety';
-    state.currentQuestion = null;
-    const t = addTyping();
-    setTimeout(() => replaceTyping(t, next.text), updates.length ? 1200 : 800);
-    clearSuggestionChips();
-    return;
-  }
-
-  state.currentQuestion = next.type;
   const delay = updates.length ? 1200 : 800;
-  const t = addTyping();
-  setTimeout(() => replaceTyping(t, next.text), delay);
-
-  showRelevantChips(next.type);
+  promptNextQuestion(getNextQuestion(), delay);
 }
 
 async function handleSafetyCheck(text, opts = {}){

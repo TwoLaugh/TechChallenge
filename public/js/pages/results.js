@@ -312,7 +312,10 @@
         if (results.flags?.length) {
           warningContent.push(`
             <div class="bg-red-100 p-4 rounded-lg mb-4">
-              <h3 class="font-semibold text-red-800 mb-2">⚠️ Red Flags - Seek Medical Attention</h3>
+              <h3 class="font-semibold text-red-800 mb-2 warning-title">
+                <span class="warning-icon" aria-hidden="true">⚠️</span>
+                <span>Red flags – seek medical attention</span>
+              </h3>
               <ul class="list-disc ml-4 space-y-2">
                 ${results.flags.map(flag => `<li class="text-red-700">${flag}</li>`).join('')}
               </ul>
@@ -323,7 +326,10 @@
         if (results.warnings?.length) {
           warningContent.push(`
             <div class="bg-orange-50 p-4 rounded-lg">
-              <h3 class="font-semibold text-orange-800 mb-2">Important Safety Warnings</h3>
+              <h3 class="font-semibold text-orange-800 mb-2 warning-title">
+                <span class="warning-icon" aria-hidden="true">⚠️</span>
+                <span>Important safety warnings</span>
+              </h3>
               <ul class="list-disc ml-4 space-y-2">
                 ${results.warnings.map(warning => `<li class="text-orange-700">${warning}</li>`).join('')}
               </ul>

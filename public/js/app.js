@@ -1,13 +1,38 @@
 // Ensure accidental editable states are disabled (some browsers retain them after devtools tweaks)
-if (document?.body?.isContentEditable) {
-  document.body.contentEditable = 'false';
+function stripResidualEditing(root = document) {
+  const body = root?.body;
+  if (!body) return;
+
+  const disable = el => {
+    if (!el) return;
+    if (el.isContentEditable || el.getAttribute?.('contenteditable')) {
+      el.contentEditable = 'false';
+      el.removeAttribute('contenteditable');
+    }
+  };
+
+  disable(body);
+  body.querySelectorAll('[contenteditable]')
+    .forEach(disable);
+
+  if (root?.designMode && root.designMode.toLowerCase?.() === 'on') {
+    root.designMode = 'off';
+  }
 }
-if (document?.body?.hasAttribute('contenteditable')) {
-  document.body.removeAttribute('contenteditable');
+
+stripResidualEditing();
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => stripResidualEditing());
 }
-if (document?.designMode === 'on') {
-  document.designMode = 'off';
-}
+
+document.addEventListener('focusin', event => {
+  const target = event.target;
+  if (target && typeof target === 'object' && 'isContentEditable' in target && target.isContentEditable) {
+    target.contentEditable = 'false';
+    target.removeAttribute('contenteditable');
+  }
+});
 
 // Mobile menu toggle with proper ARIA
 const toggle = document.querySelector('.nav-toggle');

@@ -255,6 +255,20 @@ const state = {
   lastPayload: null
 };
 
+function resetState() {
+  state.step = 'greet';
+  state.who = null;
+  state.duration = null;
+  state.what = '';
+  state.action = '';
+  state.meds = '';
+  state.condition = null;
+  state.flags = [];
+  state.cautions = [];
+  state.currentQuestion = null;
+  state.lastPayload = null;
+}
+
 // ---------- Message Analysis ----------
 function describeNluFlag(pattern) {
   if (!pattern) return null;
@@ -400,6 +414,7 @@ function fillSlotFromText(text, currentStep) {
   
   if (currentStep === 'meds') {
     if (/nothing|none|no.?(medicine|medication)/i.test(t)) return 'none';
+    if (/no other (meds?|medications?|medicine)/i.test(t)) return 'none';
     return t; // Store whatever they say
   }
   
@@ -728,20 +743,26 @@ formEl.addEventListener('submit', (e)=>{
   }
 });
 
-restartEl.addEventListener('click', ()=>{
-  // Reset state
-  Object.keys(state).forEach(k=>{
-    if (Array.isArray(state[k])) state[k]=[];
-    else state[k]=null;
+if (restartEl) {
+  restartEl.addEventListener('click', ()=>{
+    resetState();
+    window.StateManager?.clearState?.();
+    messagesEl.innerHTML='';
+    greet();
+    clearSuggestionChips();
   });
-  state.step='greet';
-  state.what='';
-  state.currentQuestion=null;
-  window.StateManager?.clearState?.();
-  messagesEl.innerHTML='';
-  greet();
-  clearSuggestionChips();
-});
+}
+
+if (typeof window !== 'undefined') {
+  window.ChatInternals = {
+    analyzeMessage,
+    fillSlotFromText,
+    evaluateSafety,
+    getNextQuestion,
+    resetState,
+    state
+  };
+}
 
 // Initialize suggestion chips binding
 bindChips();

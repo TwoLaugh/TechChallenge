@@ -24,7 +24,7 @@ const CLOSING_REMINDERS = [
 
 const OFF_TOPIC_RULES = [
   {
-    regex: /(tell me a joke|joke|story|weather|who are you|what are you)/i,
+    regex: /(tell me a joke|joke|story|weather)/i,
     message:
       "I'm here specifically for pharmacy self-care questions. Let's focus on symptoms and medicines so I can keep you safe."
   },
@@ -41,6 +41,23 @@ const OFF_TOPIC_RULES = [
 ];
 
 const SUMMARY_TRIGGER = /\b(summary|summarise|summarize|recap|what have you got so far)\b/i;
+const ORIENTATION_TRIGGER = /\b(what can you do|how can you help|what do you do|what is this|who are you|what are you)\b/i;
+
+const NEGATION_WINDOW = /\b(?:no|not|without|never|denies?|absence of)\b(?:[^a-z0-9]+[a-z0-9]+){0,3}$/i;
+
+function textHasAffirmativePattern(text, regex) {
+  if (!text) return false;
+  const source = regex.source;
+  const flags = regex.flags.includes('g') ? regex.flags : regex.flags + 'g';
+  const re = new RegExp(source, flags);
+  let match;
+  while ((match = re.exec(text))) {
+    const start = match.index;
+    const prefix = text.slice(Math.max(0, start - 60), start).trim();
+    if (!NEGATION_WINDOW.test(prefix)) return true;
+  }
+  return false;
+}
 
 function checkOffTopic(text){
   if(!text) return null;
@@ -65,19 +82,21 @@ function joinWithAnd(list){
 }
 
 const WHO_PATTERNS = [
-  { value: 'adult', regex: /\badult\b|grown.?up/i },
-  { value: 'teen 13–17', regex: /\bteen(ager)?\b|\b1[3-7]\b/i },
-  { value: 'child 5–12', regex: /child|kid|\b(1[01]|[5-9])\b\s?(year|yo)/i },
-  { value: 'toddler 1–4', regex: /toddler|\b[1-4]\b\s?(year|yo)/i },
-  { value: 'infant <1', regex: /infant|newborn|under\s?1|baby/i },
-  { value: 'pregnant', regex: /pregnan|expecting/i },
+  { value: 'adult', regex: /\b(?:adult|grown\s?up)\b|\bfor\s+(?:me|myself)\b|\bmyself\b|\bi(?:'m| am| have|ve got)\b|\b(?:it'?s|this is) for me\b/i },
+  { value: 'teen 13–17', regex: /\bteen(?:ager)?\b|\b1[3-7](?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i },
+  { value: 'child 5–12', regex: /\bchild\b|\bkid\b|\b(?:1[0-2]|[5-9])(?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i },
+  { value: 'toddler 1–4', regex: /\btoddler\b|\b[1-4](?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i },
+  { value: 'infant <1', regex: /\binfant\b|\bnewborn\b|under\s?1|\bbaby\b|\b0(?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i },
+  { value: 'pregnant', regex: /pregnan|pregnancy|expecting/i },
   { value: 'breastfeeding', regex: /breast\s?feeding|breastfeeding|nursing|lactat/i }
 ];
 
 function detectWhoMentions(text){
   if(!text) return [];
   const low = text.toLowerCase();
-  const matches = WHO_PATTERNS.filter(rule => rule.regex.test(low)).map(rule => rule.value);
+  const matches = WHO_PATTERNS
+    .filter(rule => textHasAffirmativePattern(low, rule.regex))
+    .map(rule => rule.value);
   return Array.from(new Set(matches));
 }
 
@@ -129,11 +148,32 @@ function handleRecapRequest(){
   }
 }
 
+function maybeHandleOrientationRequest(text){
+  if(!text) return false;
+  if(!ORIENTATION_TRIGGER.test(text)) return false;
+  botSpeak(`${ORIENTATION_MESSAGES[0]} ${ORIENTATION_MESSAGES[1]} ${ORIENTATION_MESSAGES[2]}`);
+  const next = getNextQuestion();
+  if(next){
+    state.currentQuestion = next.type === 'safety' ? null : next.type;
+    const row = addTyping();
+    setTimeout(() => replaceTyping(row, next.text), 800);
+    showRelevantChips(next.type);
+  }
+  return true;
+}
+
 function buildClosingSummary(){
-  const warnings = state.flags?.length ? 'We discussed some red flag symptoms, so please seek urgent medical advice from NHS 111, your GP, or A&E as appropriate before using any OTC medicines. ' : '';
-  const general = `${CLOSING_REMINDERS[0]} ${CLOSING_REMINDERS[1]}`;
-  const reminder = 'If anything changes or you are unsure, speak with a pharmacist or healthcare professional.';
-  return `${warnings}${general} ${reminder}`;
+  const parts = [];
+  if(state.flags?.length){
+    parts.push(`Urgent warning recap: ${state.flags.join(' ')}`);
+  }
+  const combinedWarnings = Array.from(new Set([...(state.cautions || []), ...(state.warnings || [])]));
+  if(combinedWarnings.length){
+    parts.push(`Safety reminders: ${combinedWarnings.join(' ')}`);
+  }
+  parts.push(`${CLOSING_REMINDERS[0]} ${CLOSING_REMINDERS[1]}`);
+  parts.push('If anything changes or you are unsure, speak with a pharmacist or healthcare professional.');
+  return parts.join(' ');
 }
 
 function maybeHandleClosure(text){
@@ -409,8 +449,10 @@ const state = {
   condition: null,
   flags: [],
   cautions: [],
+  warnings: [],
   currentQuestion: null, // Track what we're currently asking
-  lastPayload: null
+  lastPayload: null,
+  escalated: false
 };
 
 function resetState() {
@@ -423,8 +465,10 @@ function resetState() {
   state.condition = null;
   state.flags = [];
   state.cautions = [];
+  state.warnings = [];
   state.currentQuestion = null;
   state.lastPayload = null;
+  state.escalated = false;
 }
 
 // ---------- Message Analysis ----------
@@ -447,13 +491,13 @@ function analyzeMessage(text) {
     meds: null
   };
 
-  if (/adult|grown.?up|myself|me|my|i/i.test(t)) heuristics.who = 'adult';
-  else if (/teen|teenager|13|14|15|16|17/i.test(t)) heuristics.who = 'teen 13–17';
-  else if (/child|kid|son|daughter|8|9|10|11|12/i.test(t)) heuristics.who = 'child 5–12';
-  else if (/toddler|little one|2|3|4.year/i.test(t)) heuristics.who = 'toddler 1–4';
-  else if (/baby|infant|newborn|under.?1/i.test(t)) heuristics.who = 'infant <1';
-  else if (/pregnant|pregnancy|expecting/i.test(t)) heuristics.who = 'pregnant';
-  else if (/breastfeeding|nursing|breast.?feeding/i.test(t)) heuristics.who = 'breastfeeding';
+  if (textHasAffirmativePattern(t, /\b(?:adult|grown\s?up)\b|\bfor\s+(?:me|myself)\b|\bmyself\b|\bi(?:'m| am| have|ve got)\b|\b(?:it'?s|it is|this is) for me\b/i)) heuristics.who = 'adult';
+  else if (textHasAffirmativePattern(t, /\bteen(?:ager)?\b|\b1[3-7](?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i)) heuristics.who = 'teen 13–17';
+  else if (textHasAffirmativePattern(t, /\bchild\b|\bkid\b|\b(?:1[0-2]|[5-9])(?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i)) heuristics.who = 'child 5–12';
+  else if (textHasAffirmativePattern(t, /\btoddler\b|\b[1-4](?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i)) heuristics.who = 'toddler 1–4';
+  else if (textHasAffirmativePattern(t, /\bbaby\b|\binfant\b|\bnewborn\b|under\s?1|\b0(?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i)) heuristics.who = 'infant <1';
+  else if (textHasAffirmativePattern(t, /pregnan|pregnancy|expecting/i)) heuristics.who = 'pregnant';
+  else if (textHasAffirmativePattern(t, /breast\s?feeding|breastfeeding|nursing|lactat/i)) heuristics.who = 'breastfeeding';
 
   if (/nothing|none|haven.?t tried/i.test(t)) heuristics.action = 'none';
   else if (/paracetamol|tylenol/i.test(t)) heuristics.action = 'paracetamol';
@@ -465,9 +509,9 @@ function analyzeMessage(text) {
   const nlu = window.NLU?.analyze?.(text, state) || {};
   const combinedFlags = new Set();
 
-  if (/worst.ever|thunderclap|sudden.severe/i.test(t)) combinedFlags.add('Sudden severe headache mentioned.');
-  if (/blood|bleeding/i.test(t)) combinedFlags.add('Bleeding symptoms mentioned.');
-  if (/can.?t breathe|chest pain|collapse/i.test(t)) combinedFlags.add('Possible emergency symptoms mentioned.');
+  if (textHasAffirmativePattern(t, /worst.?ever|thunderclap|sudden.?severe/i)) combinedFlags.add('Sudden severe headache mentioned.');
+  if (textHasAffirmativePattern(t, /blood|bleeding/i)) combinedFlags.add('Bleeding symptoms mentioned.');
+  if (textHasAffirmativePattern(t, /can.?t breathe|chest pain|collapse/i)) combinedFlags.add('Possible emergency symptoms mentioned.');
 
   if (Array.isArray(nlu.redFlags)) {
     nlu.redFlags.forEach(flag => {
@@ -487,8 +531,9 @@ function analyzeMessage(text) {
 }
 
 function getNextQuestion() {
-  if (!state.who) return { 
-    type: 'who', 
+  if (state.escalated) return null;
+  if (!state.who) return {
+    type: 'who',
     text: getRandomResponse(RESPONSES.questions.who) + " (adult, teen 13–17, child 5–12, toddler 1–4, infant <1, pregnant, breastfeeding)"
   };
   if (!state.condition) return { 
@@ -550,23 +595,36 @@ function updateStateFromAnalysis(analysis) {
   return updates;
 }
 
+function triggerEscalation() {
+  if (state.escalated) return;
+  state.escalated = true;
+  state.step = 'escalated';
+  state.currentQuestion = null;
+  const reasons = state.flags.length ? `Warning sign noted: ${state.flags.join(' ')}` : '';
+  const message = `${reasons ? reasons + ' ' : ''}I can't safely recommend an over-the-counter treatment right now. Please speak to a pharmacist, GP, or call NHS 111 as soon as possible. If the person becomes very unwell, call 999 or go to A&E immediately.`;
+  botSpeak(message, { delay: 0 });
+  clearSuggestionChips();
+}
+
 function addFlag(message) {
   if (!message) return;
   if (!state.flags.includes(message)) state.flags.push(message);
+  triggerEscalation();
 }
 
 // More precise extraction to catch specific answers
 function fillSlotFromText(text, currentStep) {
   const t = text.toLowerCase().trim();
-  
+  const low = text.toLowerCase();
+
   if (currentStep === 'who') {
-    if (/adult|grown.?up/i.test(t)) return 'adult';
-    if (/teen|teenager|13|14|15|16|17/i.test(t)) return 'teen 13–17';
-    if (/child|kid|5|6|7|8|9|10|11|12/i.test(t)) return 'child 5–12';
-    if (/toddler|1|2|3|4.year/i.test(t)) return 'toddler 1–4';
-    if (/baby|infant|newborn|under.?1/i.test(t)) return 'infant <1';
-    if (/pregnant|pregnancy|expecting/i.test(t)) return 'pregnant';
-    if (/breastfeeding|nursing/i.test(t)) return 'breastfeeding';
+    if (textHasAffirmativePattern(low, /\b(?:adult|grown\s?up)\b|\bfor\s+(?:me|myself)\b|\bmyself\b|\bi(?:'m| am| have|ve got)\b|\b(?:it'?s|it is|this is) for me\b/i)) return 'adult';
+    if (textHasAffirmativePattern(low, /\bteen(?:ager)?\b|\b1[3-7](?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i)) return 'teen 13–17';
+    if (textHasAffirmativePattern(low, /\bchild\b|\bkid\b|\b(?:1[0-2]|[5-9])(?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i)) return 'child 5–12';
+    if (textHasAffirmativePattern(low, /\btoddler\b|\b[1-4](?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i)) return 'toddler 1–4';
+    if (textHasAffirmativePattern(low, /\bbaby\b|\binfant\b|\bnewborn\b|under\s?1|\b0(?:\s?|-)(?:year|yr|yo)s?(?:-?old)?\b/i)) return 'infant <1';
+    if (textHasAffirmativePattern(low, /pregnan|pregnancy|expecting/i)) return 'pregnant';
+    if (textHasAffirmativePattern(low, /breast\s?feeding|breastfeeding|nursing|lactat/i)) return 'breastfeeding';
   }
 
   if (currentStep === 'condition') {
@@ -604,20 +662,20 @@ function fillSlotFromText(text, currentStep) {
 
 function evaluateSafety(text) {
   const t = text.toLowerCase();
-  
+
   // Check for red flags based on condition and general symptoms
-  if (state.condition === 'headache' && /worst.ever|thunderclap|head.injury|weakness|confusion|vision/i.test(t)) {
+  if (state.condition === 'headache' && textHasAffirmativePattern(t, /worst.?ever|thunderclap|head.?injury|weakness|confusion|vision/i)) {
     addFlag('Headache red flags — seek urgent advice (pharmacist/GP/111).');
   }
-  if (state.condition === 'indigestion' && /trouble.swallow|vomit.*blood|black.stool|severe.pain/i.test(t)) {
+  if (state.condition === 'indigestion' && textHasAffirmativePattern(t, /trouble.?swallow|vomit.*blood|black.?stool|severe.?pain/i)) {
     addFlag('Indigestion red flags — urgent medical assessment needed.');
   }
-  if (state.condition === 'diarrhoea' && /blood|high.fever|severe.pain|week/i.test(t)) {
+  if (state.condition === 'diarrhoea' && textHasAffirmativePattern(t, /blood|high.?fever|severe.?pain|week/i)) {
     addFlag('Diarrhoea red flags — seek medical advice.');
   }
 
   // General emergency symptoms
-  if(/chest.pain|can.?t.breathe|collapse|vomit.*blood/i.test(t)) {
+  if(textHasAffirmativePattern(t, /chest.?pain|can.?t.?breathe|collapse|vomit.*blood/i)) {
     addFlag('Emergency symptoms — call 999 or go to A&E immediately.');
   }
 }
@@ -633,6 +691,16 @@ function greet(){
 
 function handleUserMessage(text){
   if (text) state.what = state.what ? state.what + ' ' + text : text;
+
+  if (state.escalated) {
+    botSpeak('I need a pharmacist or medical professional to take over because of the urgent warning signs we discussed. Please seek help right away.');
+    clearSuggestionChips();
+    return;
+  }
+
+  if (maybeHandleOrientationRequest(text)) {
+    return;
+  }
 
   const rule = checkOffTopic(text);
   if (rule) {
@@ -702,6 +770,14 @@ function handleUserMessage(text){
       const key = state.currentQuestion;
       state[key] = slotValue;
       state.currentQuestion = null;
+      const quickAnalysis = analyzeMessage(text);
+      if (quickAnalysis.redFlags.length) {
+        quickAnalysis.redFlags.forEach(addFlag);
+      }
+
+      if (state.escalated) {
+        return;
+      }
       let ack = null;
       if (key === 'who') ack = `Thanks, I've noted this is for ${slotValue}.`;
       else if (key === 'duration') ack = `Thanks, I've recorded the duration as ${slotValue}.`;
@@ -712,6 +788,7 @@ function handleUserMessage(text){
 
       setTimeout(() => {
         const next = getNextQuestion();
+        if (!next) return;
         if (next.type === 'safety') {
           state.step = 'safety';
         } else {
@@ -732,6 +809,10 @@ function handleUserMessage(text){
     analysis.redFlags.forEach(addFlag);
   }
 
+  if (state.escalated) {
+    return;
+  }
+
   if (updates.length) {
     const ack = buildAcknowledgement(updates);
     if (ack) {
@@ -739,7 +820,46 @@ function handleUserMessage(text){
     }
   }
 
+  const hasMeaningfulUpdate = Boolean(
+    updates.length ||
+    analysis.condition ||
+    analysis.duration ||
+    analysis.who ||
+    analysis.action ||
+    analysis.meds ||
+    (analysis.redFlags && analysis.redFlags.length)
+  );
+
+  if (!hasMeaningfulUpdate && !state.currentQuestion) {
+    const outstanding = describeOutstandingFields();
+    let prompt = "I didn't catch any symptom details there.";
+    if (outstanding.length) {
+      if (outstanding.length === 1) {
+        prompt += ` I still need ${outstanding[0]} to continue.`;
+      } else {
+        const last = outstanding[outstanding.length - 1];
+        const rest = outstanding.slice(0, -1).join(', ');
+        prompt += ` I still need ${rest ? rest + ', and ' : ''}${last} to continue.`;
+      }
+    } else {
+      prompt += ' Could you let me know who needs help and what is happening?';
+    }
+    botSpeak(prompt);
+    const nextQuestion = getNextQuestion();
+    if (nextQuestion) {
+      state.currentQuestion = nextQuestion.type === 'safety' ? null : nextQuestion.type;
+      const typingRow = addTyping();
+      setTimeout(() => replaceTyping(typingRow, nextQuestion.text), 800);
+      showRelevantChips(nextQuestion.type);
+    }
+    return;
+  }
+
   const next = getNextQuestion();
+
+  if (!next) {
+    return;
+  }
 
   if (next.type === 'safety') {
     state.step = 'safety';
@@ -759,7 +879,17 @@ function handleUserMessage(text){
 }
 
 async function handleSafetyCheck(text){
+  if (state.escalated) {
+    botSpeak('I still recommend urgent professional assessment before taking any over-the-counter medicine.');
+    clearSuggestionChips();
+    return;
+  }
+
   evaluateSafety(text);
+
+  if (state.escalated) {
+    return;
+  }
 
   // Generate final advice
   const payload = {
@@ -802,6 +932,9 @@ async function handleSafetyCheck(text){
   if (!Array.isArray(result.warnings)) {
     result.warnings = [];
   }
+
+  state.cautions = Array.from(new Set([...(state.cautions || []), ...(result.cautions || [])]));
+  state.warnings = Array.from(new Set([...(state.warnings || []), ...(result.warnings || [])]));
 
   showFinalAdvice(result, payload);
 }
@@ -1032,7 +1165,9 @@ if (typeof window !== 'undefined') {
     evaluateSafety,
     getNextQuestion,
     resetState,
-    state
+    state,
+    detectWhoMentions,
+    textHasAffirmativePattern
   };
 }
 

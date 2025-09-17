@@ -25,7 +25,7 @@
   const WHO_SYNONYMS = [
     {value:'adult', pats:['adult','grown up']},
     {value:'teen 13–17', pats:['teen','teenager','13 year','14 year','15 year','16 year','17 year']},
-    {value:'child 5–12', pats:['child','kid','11 year','10 year','9 year','8 year','7 year','6 year','5 year']},
+    {value:'child 5–12', pats:['child','kid','12 year','12-year','11 year','10 year','9 year','8 year','7 year','6 year','5 year']},
     {value:'toddler 1–4', pats:['toddler','3 year','2 year','1 year','4 year']},
     {value:'infant <1', pats:['infant','baby','newborn']},
     {value:'pregnant', pats:['pregnant','pregnancy','expecting']},
@@ -46,6 +46,7 @@
     if(numMatch){
       const n = parseInt(numMatch[1]); const unit = numMatch[2];
       if(/hour|hr/.test(unit) || (unit==='day' && n===0)) return '< 24 hours';
+      if(unit.startsWith('day') && n === 0) return '< 24 hours';
       if(unit.startsWith('day')){ if(n<=3) return '1–3 days'; if(n<=7) return '4–7 days'; return '> 7 days'; }
       if(unit.startsWith('week')) return n<=1? '4–7 days' : '> 7 days';
       if(unit.startsWith('month')) return '> 7 days';
@@ -110,15 +111,32 @@
 
   // Red flag detection (negation naive here; refined can be upstream)
   const RED_FLAG_PATTERNS = [
-    /vomiting blood|vomit(ing)? blood|blood in (stool|poo)/i,
-    /black (stool|tarry)/i,
-    /severe (chest|abdominal) pain/i,
+    /vomiting blood|vomit(?:ing)? blood|blood in (?:stool|poo)/i,
+    /black (?:stool|tarry)/i,
+    /severe (?:chest|abdominal) pain/i,
     /collapse|unconscious/i,
     /stiff neck|non.?blanching rash/i
   ];
+
+  const NEGATION_WINDOW = /\b(?:no|not|without|never|denies?|absence of)\b(?:[^a-z0-9]+[a-z0-9]+){0,3}$/i;
+
+  function hasAffirmativeMatch(text, pattern){
+    if(!text) return false;
+    const source = pattern.source;
+    const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+    const re = new RegExp(source, flags);
+    let match;
+    while((match = re.exec(text))){
+      const start = match.index;
+      const prefix = text.slice(Math.max(0, start - 60), start);
+      if(!NEGATION_WINDOW.test(prefix.trim())) return true;
+    }
+    return false;
+  }
+
   function detectRedFlags(text){
     const flags=[]; const low = NORMALISE(text);
-    RED_FLAG_PATTERNS.forEach(re=>{ if(re.test(low) && !/no |not /.test(low.slice(Math.max(0, low.search(re)-8), low.search(re)+4))) flags.push(re.source); });
+    RED_FLAG_PATTERNS.forEach(re=>{ if(hasAffirmativeMatch(low, re)) flags.push(re.source); });
     return flags;
   }
 

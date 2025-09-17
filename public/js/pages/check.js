@@ -27,7 +27,7 @@ form?.addEventListener('click', (e) => {
   if (prevBtn) go(Math.max(current - 1, 1));
 });
 
-document.getElementById('finish')?.addEventListener('click', () => {
+document.getElementById('finish')?.addEventListener('click', async () => {
   if (!form?.reportValidity()) return;
 
   const errorEl = document.getElementById('finish-error');
@@ -46,6 +46,9 @@ document.getElementById('finish')?.addEventListener('click', () => {
   }
 
   try {
+    if (window.Engine?.ready) {
+      await window.Engine.ready();
+    }
     if (!window.Engine?.evaluate) {
       throw new Error('The recommendation engine is still loading. Please wait a moment and try again.');
     }

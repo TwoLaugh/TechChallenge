@@ -198,6 +198,19 @@ input:focus, select:focus, textarea:focus {
 
 .actions { display: flex; gap: 10px; margin-top: 8px; }
 
+#form-status {
+  margin-top: 12px;
+  font-size: 15px;
+}
+
+#form-status.success {
+  color: #0f766e;
+}
+
+#form-status.error {
+  color: #dc2626;
+}
+
 /* Divider and side panel tweaks */
 .divider { height: 1px; background: rgba(255,255,255,.12); margin: 14px 0; }
 .contact-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; }

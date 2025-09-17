@@ -79,4 +79,29 @@ describe('Medication engine clinical pathways', () => {
     expect(macrogol).toBeTruthy();
     expect(macrogol.pediatric?.length || 0).toBeGreaterThan(0);
   });
+
+  it('surfaces duplicate and interaction cautions together for oral decongestants', () => {
+    const result = Engine.evaluate({
+      condition: 'commoncold',
+      who: 'adult',
+      what: 'blocked nose and congestion',
+      duration: '4-7 days',
+      action: 'Pseudoephedrine tablets',
+      meds: 'MAOI treatment',
+      answers: {}
+    });
+
+    expect(result.advice.find(item => /Pseudoephedrine/i.test(item.name))).toBeFalsy();
+    expect(result.cautions).toEqual(expect.arrayContaining([
+      'Already reported using Oral decongestant; avoid duplicate dosing.',
+      'Avoid sympathomimetic decongestants with monoamine oxidase inhibitors.'
+    ]));
+
+    const traceEntry = result.trace.options.find(opt => opt.option === 'Oral decongestant');
+    expect(traceEntry?.reasons).toEqual(expect.arrayContaining([
+      'Already reported using Oral decongestant; avoid duplicate dosing.',
+      'Avoid sympathomimetic decongestants with monoamine oxidase inhibitors.'
+    ]));
+    expect(traceEntry?.included).toBe(false);
+  });
 });

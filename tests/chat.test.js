@@ -91,6 +91,11 @@ describe('chat analyseMessage edge cases', () => {
     expect(analysis.redFlags).toContain('Possible emergency symptoms mentioned.');
   });
 
+  it('ignores negated red flag statements that explicitly deny symptoms', () => {
+    const analysis = chatInternals.analyzeMessage('He is not vomiting blood or collapsing, just a mild upset stomach.');
+    expect(analysis.redFlags).toEqual([]);
+  });
+
   it('normalises structured red flags returned by heuristic NLU helper', () => {
     analyzeMock.mockReturnValue({ redFlags: ['vomit(ing)? blood'] });
     const analysis = chatInternals.analyzeMessage('');
@@ -105,6 +110,20 @@ describe('chat analyseMessage edge cases', () => {
   it('captures negative medication statements for the meds slot', () => {
     const value = chatInternals.fillSlotFromText('No other medications at all.', 'meds');
     expect(value).toBe('none');
+  });
+
+  it('maps explicit 12-year-old phrasing to the child demographic', () => {
+    const value = chatInternals.fillSlotFromText('It is for my 12-year-old son.', 'who');
+    expect(value).toBe('child 5–12');
+  });
+
+  it('detects conflicting who information for ambiguous statements', () => {
+    const mentions = chatInternals.detectWhoMentions('This is for my 12-year-old who is pregnant.');
+    expect(mentions).toEqual(expect.arrayContaining(['child 5–12', 'pregnant']));
+  });
+
+  it('treats negated keywords as non-affirmative in helper', () => {
+    expect(chatInternals.textHasAffirmativePattern('not vomiting blood or collapsing', /vomiting blood/i)).toBe(false);
   });
 });
 
@@ -126,6 +145,12 @@ describe('chat safety evaluation escalation paths', () => {
 
   it('ignores calm filler text without adding unnecessary flags', () => {
     chatInternals.evaluateSafety('Just checking in, nothing major to report besides feeling fine.');
+    expect(chatInternals.state.flags).toEqual([]);
+  });
+
+  it('does not trigger flags when concerning symptoms are explicitly denied', () => {
+    chatInternals.state.condition = 'diarrhoea';
+    chatInternals.evaluateSafety('No blood, no fever, just mild cramping.');
     expect(chatInternals.state.flags).toEqual([]);
   });
 });

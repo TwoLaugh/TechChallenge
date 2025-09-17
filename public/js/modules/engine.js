@@ -181,9 +181,9 @@
 
     const details = getDetails(payload);
     console.log('Patient details:', details);
-  const advice = [], cautions = [], flags = checkRedFlags(condition, payload.answers);
-  const optionTraces = []; // collect per-option eligibility reasoning
-  const rationaleMap = {}; // medicationName -> rationale bullets
+    const advice = [], cautions = [], flags = checkRedFlags(condition, payload.answers);
+    const optionTraces = []; // collect per-option eligibility reasoning
+    const rationaleMap = {}; // medicationName -> rationale bullets
 
     // Normalise list of things already tried / currently taken for filtering
     const triedText = `${payload.action||''} ${payload.meds||''}`.toLowerCase();
@@ -192,47 +192,68 @@
 
     for(const option of condition.options || []){
       const trace = { option: option.class_name, included:false, reasons:[], excluded:[] };
-      const o1 = appliesOption(option, details);
-      if(!o1.ok){
+      const localCautions = [];
+
+      const suitability = appliesOption(option, details);
+      if(suitability.cautions?.length){
+        suitability.cautions.filter(Boolean).forEach(c => {
+          localCautions.push(c);
+          trace.reasons.push(c);
+        });
+      }
+      let eligible = true;
+      if(!suitability.ok){
+        eligible = false;
         trace.excluded.push('Age/pregnancy/breastfeeding limits');
-        trace.reasons.push(...o1.cautions);
-        cautions.push(...o1.cautions);
-        optionTraces.push(trace); continue;
+      } else {
+        trace.reasons.push('Age & pregnancy/breastfeeding suitability passed');
       }
-      trace.reasons.push('Age & pregnancy/breastfeeding suitability passed');
-      const o2 = applyGlobalRules(option, details, payload);
-      if(!o2.ok){
+
+      const ruleCheck = applyGlobalRules(option, details, payload);
+      if(ruleCheck.cautions?.length){
+        ruleCheck.cautions.filter(Boolean).forEach(c => {
+          localCautions.push(c);
+          trace.reasons.push(c);
+        });
+      }
+      if(!ruleCheck.ok){
+        eligible = false;
         trace.excluded.push('Global safety rule');
-        trace.reasons.push(...o2.cautions);
-        cautions.push(...o2.cautions);
-        optionTraces.push(trace); continue;
+      } else {
+        trace.reasons.push('Global safety rules satisfied');
       }
+
       const medicationName = option.example_products?.[0] || option.class_name;
-      // Already tried?
       const nameTokens = [medicationName, option.class_name, ...(option.members_examples||[])];
       const previouslyUsed = nameTokens.some(n=>{
         const low = (n||'').toLowerCase().split(/\s+/)[0];
         return alreadyTried.has(low) || triedText.includes(low);
       });
       if(previouslyUsed){
+        eligible = false;
         const msg = `Already reported using ${option.class_name || medicationName}; avoid duplicate dosing.`;
-        cautions.push(msg);
-        trace.excluded.push('Already in use');
+        localCautions.push(msg);
         trace.reasons.push(msg);
-        optionTraces.push(trace); continue;
+        trace.excluded.push('Already in use');
       }
-      trace.included = true;
-      trace.reasons.push('Not previously tried');
-      trace.reasons.push(option.typical_use ? `Typical use: ${option.typical_use}` : 'Typical use aligns with condition');
-      if(option.age_limits?.note){
-        trace.reasons.push(`Age guidance: ${option.age_limits.note}`);
+
+      if(eligible){
+        trace.included = true;
+        trace.reasons.push('Not previously tried');
+        trace.reasons.push(option.typical_use ? `Typical use: ${option.typical_use}` : 'Typical use aligns with condition');
+        if(option.age_limits?.note){
+          trace.reasons.push(`Age guidance: ${option.age_limits.note}`);
+        }
+        if(option.why) trace.reasons.push(...option.why.map(w=>'Why: '+w));
+        if(option.dose_adult) trace.reasons.push('Adult dose reference included');
+        rationaleMap[medicationName] = trace.reasons.slice();
+        console.log('Adding medication:', medicationName, 'from option:', option);
+        advice.push(medicationName);
+      } else {
+        trace.included = false;
       }
-      if(option.why) trace.reasons.push(...option.why.map(w=>'Why: '+w));
-      if(option.dose_adult) trace.reasons.push('Adult dose reference included');
-      rationaleMap[medicationName] = trace.reasons.slice();
-      console.log('Adding medication:', medicationName, 'from option:', option);
-      advice.push(medicationName);
-      cautions.push(...o1.cautions, ...o2.cautions);
+
+      cautions.push(...localCautions);
       optionTraces.push(trace);
     }
     console.log('Raw advice list:', advice);

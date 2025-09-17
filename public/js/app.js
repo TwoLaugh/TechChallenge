@@ -1,3 +1,14 @@
+// Ensure accidental editable states are disabled (some browsers retain them after devtools tweaks)
+if (document?.body?.isContentEditable) {
+  document.body.contentEditable = 'false';
+}
+if (document?.body?.hasAttribute('contenteditable')) {
+  document.body.removeAttribute('contenteditable');
+}
+if (document?.designMode === 'on') {
+  document.designMode = 'off';
+}
+
 // Mobile menu toggle with proper ARIA
 const toggle = document.querySelector('.nav-toggle');
 const menu = document.getElementById('menu');

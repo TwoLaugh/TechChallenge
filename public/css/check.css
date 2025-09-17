@@ -32,6 +32,15 @@
   .card.soft { background: rgba(255,255,255,.03); }
   .actions { display: flex; gap: 10px; margin-top: 14px; }
   
-  fieldset { border: 1px solid rgba(255,255,255,.12); border-radius: var(--radius-sm); padding: 12px; }
-  legend { padding: 0 6px; }
-  
+  fieldset {
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    background: rgba(12,17,25,.65);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  legend {
+    padding: 0 6px;
+    font-weight: 600;
+    color: #fff;
+  }

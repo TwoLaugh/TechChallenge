@@ -9,6 +9,189 @@ const inputEl = document.getElementById('input');
 const formEl = document.getElementById('composer');
 const restartEl = document.getElementById('restart');
 
+const ORIENTATION_MESSAGES = [
+  "Hi! I'm the Pharmalogic over-the-counter assistant. Tell me what's going on and we'll see which OTC options could be appropriate.",
+  "Please always read the medicine packaging and patient leaflet, and never take more than the stated dose.",
+  "I'm not a substitute for a doctor or emergency service. If anyone has severe symptoms, chest pain, breathing difficulty, heavy bleeding, or feels very unwell, call 999 or go to A&E."
+];
+
+const CLOSING_REMINDERS = [
+  'Always read the patient information leaflet and follow the packaging instructions.',
+  'Never exceed the stated dose or double up on medicines with the same active ingredient.',
+  'Speak to a pharmacist, GP, or NHS 111 if symptoms persist, worsen, or you are unsure about suitability.',
+  'For emergencies (severe pain, breathing difficulty, collapse, heavy bleeding) call 999 or go to A&E immediately.'
+];
+
+const OFF_TOPIC_RULES = [
+  {
+    regex: /(tell me a joke|joke|story|weather|who are you|what are you)/i,
+    message:
+      "I'm here specifically for pharmacy self-care questions. Let's focus on symptoms and medicines so I can keep you safe."
+  },
+  {
+    regex: /(antibiotic|penicillin|amoxicillin|augmentin|morphine|oxycontin|codeine|controlled|prescription)/i,
+    message:
+      "I can only advise on non-prescription medicines. For prescription or controlled drugs you'll need to speak with a pharmacist or doctor."
+  },
+  {
+    regex: /(diagnose|medical certificate|sick note|fit note|doctor.?s note)/i,
+    message:
+      "I can't diagnose conditions or issue medical certificates. I can help you decide whether over-the-counter treatment and pharmacist support are appropriate."
+  }
+];
+
+const SUMMARY_TRIGGER = /\b(summary|summarise|summarize|recap|what have you got so far)\b/i;
+
+function checkOffTopic(text){
+  if(!text) return null;
+  return OFF_TOPIC_RULES.find(rule => rule.regex.test(text)) || null;
+}
+
+function buildAcknowledgement(updates){
+  if(!updates || !updates.length) return null;
+  return updates.join(' ');
+}
+
+function buildReminderBlock(){
+  return `<h4 style="margin: 12px 0 6px 0; color: #0369a1;">General safety reminders</h4><ul>${CLOSING_REMINDERS.map(item => `<li>${item}</li>`).join('')}</ul>`;
+}
+
+function joinWithAnd(list){
+  if(!list || !list.length) return '';
+  if(list.length === 1) return list[0];
+  const copy = [...list];
+  const last = copy.pop();
+  return `${copy.join(', ')} and ${last}`;
+}
+
+function isNoneValue(value){
+  if(!value) return false;
+  return value.trim().toLowerCase() === 'none';
+}
+
+function mergeFreeText(existing, incoming){
+  const current = (existing || '').trim();
+  const next = (incoming || '').trim();
+
+  if(!current) return next;
+  if(!next) return current;
+
+  if(isNoneValue(next)) return current ? current : 'none';
+  if(isNoneValue(current)) return next;
+
+  const lowerCurrent = current.toLowerCase();
+  const lowerNext = next.toLowerCase();
+
+  if(lowerCurrent === lowerNext) return current;
+  if(lowerNext.includes(lowerCurrent)) return next;
+  if(lowerCurrent.includes(lowerNext)) return current;
+
+  const parts = new Map();
+  const addParts = (value)=>{
+    value
+      .replace(/\band\b/gi, ',')
+      .split(/[,;/]/)
+      .map(item => item.trim())
+      .filter(Boolean)
+      .forEach(item => {
+        const key = item.toLowerCase();
+        if(!parts.has(key)) parts.set(key, item);
+      });
+  };
+
+  addParts(current);
+  addParts(next);
+  return Array.from(parts.values()).join(', ');
+}
+
+const DURATION_CLUE_REGEX = /(since|for|hour|hours|day|days|week|weeks|month|months|year|years|today|tonight|yesterday|overnight|morning|evening|afternoon|night|weekend|fortnight|couple|while|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i;
+
+function hasDurationClue(text){
+  if(!text) return false;
+  return DURATION_CLUE_REGEX.test(text);
+}
+
+const WHO_PATTERNS = [
+  { value: 'adult', regex: /\badult\b|grown.?up/i },
+  { value: 'teen 13–17', regex: /\bteen(ager)?\b|\b1[3-7]\b/i },
+  { value: 'child 5–12', regex: /child|kid|\b(1[01]|[5-9])\b\s?(year|yo)/i },
+  { value: 'toddler 1–4', regex: /toddler|\b[1-4]\b\s?(year|yo)/i },
+  { value: 'infant <1', regex: /infant|newborn|under\s?1|baby/i },
+  { value: 'pregnant', regex: /pregnan|expecting/i },
+  { value: 'breastfeeding', regex: /breast\s?feeding|breastfeeding|nursing|lactat/i }
+];
+
+function detectWhoMentions(text){
+  if(!text) return [];
+  const low = text.toLowerCase();
+  const matches = WHO_PATTERNS.filter(rule => rule.regex.test(low)).map(rule => rule.value);
+  return Array.from(new Set(matches));
+}
+
+function describeOutstandingFields(){
+  const missing = [];
+  if(!state.who) missing.push('who the advice is for');
+  if(!state.condition) missing.push('the main symptom we should focus on');
+  if(!state.duration) missing.push('how long it has been going on');
+  if(!state.action) missing.push('what you have already tried');
+  if(!state.meds) missing.push('other medicines in use');
+  return missing;
+}
+
+function summariseKnownState(){
+  const bits = [];
+  if(state.who) bits.push(`for ${state.who}`);
+  if(state.condition) bits.push(`focused on ${CONDITION_LABELS[state.condition] || state.condition}`);
+  if(state.duration) bits.push(`lasting ${state.duration}`);
+  if(state.action) bits.push(state.action === 'none' ? 'nothing tried yet' : `already tried ${state.action}`);
+  if(state.meds) bits.push(state.meds === 'none' ? 'no regular medicines reported' : `currently taking ${state.meds}`);
+  return bits;
+}
+
+function handleRecapRequest(){
+  const summaryParts = summariseKnownState();
+  const missing = describeOutstandingFields();
+  const pieces = [];
+  if(summaryParts.length){
+    pieces.push(`Here's what I have noted so far: ${summaryParts.join(', ')}.`);
+  } else {
+    pieces.push("I don't have enough detail yet to give advice.");
+  }
+  if(missing.length){
+    if(missing.length === 1){
+      pieces.push(`I still need ${missing[0]} before I can check medicines.`);
+    } else {
+      const last = missing.pop();
+      pieces.push(`I still need ${missing.join(', ')} and ${last} before I can check medicines.`);
+    }
+  }
+  pieces.push('Remember that I can only support over-the-counter questions.');
+  botSpeak(pieces.join(' '));
+  const next = getNextQuestion();
+  if(next){
+    state.currentQuestion = next.type === 'safety' ? null : next.type;
+    const t = addTyping();
+    setTimeout(() => replaceTyping(t, next.text), 800);
+    showRelevantChips(next.type);
+  }
+}
+
+function buildClosingSummary(){
+  const warnings = state.flags?.length ? 'We discussed some red flag symptoms, so please seek urgent medical advice from NHS 111, your GP, or A&E as appropriate before using any OTC medicines. ' : '';
+  const general = `${CLOSING_REMINDERS[0]} ${CLOSING_REMINDERS[1]}`;
+  const reminder = 'If anything changes or you are unsure, speak with a pharmacist or healthcare professional.';
+  return `${warnings}${general} ${reminder}`;
+}
+
+function maybeHandleClosure(text){
+  if(!text) return false;
+  const trimmed = text.trim();
+  if(!/^(thanks|thank you|that's all|that is all|goodbye|bye)[.!\s]*$/i.test(trimmed)) return false;
+  const message = buildClosingSummary();
+  botSpeak(message);
+  return true;
+}
+
 // ---------- UI helpers ----------
 function addMsg(role, text, _options = {}) {
   const row = document.createElement('div');
@@ -79,6 +262,19 @@ function bindChips(){
 }
 
 // ---------- Natural Language Understanding ----------
+const CONDITION_LABELS = {
+  headache: 'headache',
+  hayfever: 'hay fever',
+  indigestion: 'indigestion/heartburn',
+  diarrhoea: 'acute diarrhoea',
+  sorethroat: 'sore throat',
+  commoncold: 'common cold',
+  cough: 'cough',
+  constipation: 'constipation'
+};
+
+const CONDITION_PROMPT_TEXT = Object.values(CONDITION_LABELS).join(', ');
+
 const CONDITION_PATTERNS = {
   headache: [
     /head(ache|s? (hurt|pain|pound|throb))/i,
@@ -147,7 +343,7 @@ const CONDITION_PATTERNS = {
 
 function classifyCondition(text){
   if(!text) return null;
-  
+
   for(const [condition, patterns] of Object.entries(CONDITION_PATTERNS)){
     for(const pattern of patterns){
       if(pattern.test(text)) return condition;
@@ -156,22 +352,33 @@ function classifyCondition(text){
   return null;
 }
 
+function detectConditionMentions(text){
+  if(!text) return [];
+  const matches = [];
+  for(const [condition, patterns] of Object.entries(CONDITION_PATTERNS)){
+    if(patterns.some(pattern => pattern.test(text))){
+      matches.push(condition);
+    }
+  }
+  return matches;
+}
+
 function extractDuration(text){
   if(!text) return null;
   const t = text.toLowerCase();
-  
+
   // Time patterns
-  if(/today|this morning|few hours|started today/.test(t)) return '< 24 hours';
-  if(/yesterday|last night|since yesterday/.test(t)) return '< 24 hours';
+  if(/today|this (morning|afternoon|evening)|few hours|couple of hours|couple hours|started today|earlier today|since this morning|overnight/.test(t)) return '< 24 hours';
+  if(/yesterday|last night|since yesterday|last evening/.test(t)) return '< 24 hours';
   if(/couple.*days?|2-3.*days?|few.*days?/.test(t)) return '1–3 days';
-  if(/about.*week|nearly.*week|5-6.*days?/.test(t)) return '4–7 days';
-  if(/over.*week|more.*week|weeks?|months?|long time/.test(t)) return '> 7 days';
+  if(/about.*week|nearly.*week|5-6.*days?|several.*days?/.test(t)) return '4–7 days';
+  if(/over.*week|more.*week|weeks?|months?|long time|fortnight|couple of weeks|few weeks|couple weeks|several weeks/.test(t)) return '> 7 days';
   if(/comes?.*goes?|on.*off|recurring|frequent/.test(t)) return 'Recurrent / frequent';
-  
+
   // Number matching
-  const numMatch = t.match(/(\d+)\s*(hour|day|week)s?/);
+  const numMatch = t.match(/(\d+(?:\.\d+)?)\s*(hour|day|week|month)s?/);
   if(numMatch){
-    const n = parseInt(numMatch[1]);
+    const n = parseFloat(numMatch[1]);
     const unit = numMatch[2];
     if(unit === 'hour' || n === 0) return '< 24 hours';
     if(unit === 'day'){
@@ -180,8 +387,9 @@ function extractDuration(text){
       return '> 7 days';
     }
     if(unit === 'week') return '> 7 days';
+    if(unit === 'month') return '> 7 days';
   }
-  
+
   return null;
 }
 
@@ -252,7 +460,8 @@ const state = {
   flags: [],
   cautions: [],
   currentQuestion: null, // Track what we're currently asking
-  lastPayload: null
+  lastPayload: null,
+  durationPrompted: false
 };
 
 function resetState() {
@@ -267,6 +476,7 @@ function resetState() {
   state.cautions = [];
   state.currentQuestion = null;
   state.lastPayload = null;
+  state.durationPrompted = false;
 }
 
 // ---------- Message Analysis ----------
@@ -297,19 +507,25 @@ function analyzeMessage(text) {
   else if (/pregnant|pregnancy|expecting/i.test(t)) heuristics.who = 'pregnant';
   else if (/breastfeeding|nursing|breast.?feeding/i.test(t)) heuristics.who = 'breastfeeding';
 
-  if (/nothing|none|haven.?t tried/i.test(t)) heuristics.action = 'none';
-  else if (/paracetamol|tylenol/i.test(t)) heuristics.action = 'paracetamol';
-  else if (/ibuprofen|advil|nurofen/i.test(t)) heuristics.action = 'ibuprofen';
-  else if (/tried.*(rest|sleep|lying)/i.test(t)) heuristics.action = 'rest';
+  if (/paracetamol|tylenol/i.test(t)) heuristics.action = mergeFreeText(heuristics.action, 'paracetamol');
+  if (/ibuprofen|advil|nurofen/i.test(t)) heuristics.action = mergeFreeText(heuristics.action, 'ibuprofen');
+  if (/(tried|using|did).*(rest|sleep|lying)|resting|rested/i.test(t)) heuristics.action = mergeFreeText(heuristics.action, 'rest');
+  if (/antacid|gaviscon|rennies?/i.test(t)) heuristics.action = mergeFreeText(heuristics.action, 'antacid');
+  if (!heuristics.action && /nothing|none|haven.?t tried/i.test(t)) heuristics.action = 'none';
 
-  if (/no.?(medicine|medication|meds)|nothing|none/i.test(t)) heuristics.meds = 'none';
+  if (/ibuprofen|advil|nurofen/i.test(t)) heuristics.meds = mergeFreeText(heuristics.meds, 'ibuprofen');
+  if (/paracetamol|tylenol/i.test(t)) heuristics.meds = mergeFreeText(heuristics.meds, 'paracetamol');
+  if (/antihistamine|loratadine|cetirizine|chlorphenamine/i.test(t)) heuristics.meds = mergeFreeText(heuristics.meds, 'antihistamine');
+  if (/omeprazole|lansoprazole|ppi/i.test(t)) heuristics.meds = mergeFreeText(heuristics.meds, 'PPI');
+  if (!heuristics.meds && /no.?(medicine|medication|meds)|nothing|none/i.test(t)) heuristics.meds = 'none';
 
   const nlu = window.NLU?.analyze?.(text, state) || {};
   const combinedFlags = new Set();
 
   if (/worst.ever|thunderclap|sudden.severe/i.test(t)) combinedFlags.add('Sudden severe headache mentioned.');
   if (/blood|bleeding/i.test(t)) combinedFlags.add('Bleeding symptoms mentioned.');
-  if (/can.?t breathe|chest pain|collapse/i.test(t)) combinedFlags.add('Possible emergency symptoms mentioned.');
+  if (/can.?t breathe|short(ness)? of breath|chest pain|collapse|faint(ed)?|passed out|seizure/i.test(t)) combinedFlags.add('Possible emergency symptoms mentioned.');
+  if (/stiff neck|purple.?rash|glass.?test|rash that (doesn'?t|wont) fade/i.test(t)) combinedFlags.add('Possible meningitis warning signs mentioned.');
 
   if (Array.isArray(nlu.redFlags)) {
     nlu.redFlags.forEach(flag => {
@@ -318,24 +534,27 @@ function analyzeMessage(text) {
     });
   }
 
+  const ambiguousDuration = hasDurationClue(t) && !(heuristics.duration || nlu.duration);
+
   return {
     condition: heuristics.condition || nlu.condition || null,
     duration: heuristics.duration || nlu.duration || null,
     who: nlu.who || heuristics.who || null,
     action: nlu.action || heuristics.action || null,
     meds: nlu.meds || heuristics.meds || null,
-    redFlags: Array.from(combinedFlags)
+    redFlags: Array.from(combinedFlags),
+    ambiguousDuration
   };
 }
 
 function getNextQuestion() {
-  if (!state.who) return { 
-    type: 'who', 
+  if (!state.who) return {
+    type: 'who',
     text: getRandomResponse(RESPONSES.questions.who) + " (adult, teen 13–17, child 5–12, toddler 1–4, infant <1, pregnant, breastfeeding)"
   };
-  if (!state.condition) return { 
-    type: 'condition', 
-    text: "What's the main problem you're dealing with? (headache, hay fever, heartburn, diarrhoea, sore throat)"
+  if (!state.condition) return {
+    type: 'condition',
+    text: `What's the main problem you're dealing with? (${CONDITION_PROMPT_TEXT})`
   };
   if (!state.duration) return { 
     type: 'duration', 
@@ -356,33 +575,75 @@ function getNextQuestion() {
 }
 
 function updateStateFromAnalysis(analysis) {
-  let updated = false;
-  if (analysis.condition && !state.condition) {
-    state.condition = analysis.condition;
-    updated = true;
+  const updates = [];
+  const push = sentence => {
+    updates.push(updates.length ? sentence : `Thanks, ${sentence}`);
+  };
+
+  if (analysis.condition) {
+    if (!state.condition) {
+      state.condition = analysis.condition;
+      push(`I've noted we're focusing on ${CONDITION_LABELS[analysis.condition] || analysis.condition}.`);
+    } else if (state.condition !== analysis.condition) {
+      state.condition = analysis.condition;
+      push(`Thanks for the clarification — I'll switch the focus to ${CONDITION_LABELS[analysis.condition] || analysis.condition}.`);
+    }
   }
-  if (analysis.duration && !state.duration) {
-    state.duration = analysis.duration;
-    updated = true;
+  if (analysis.duration) {
+    if (!state.duration) {
+      state.duration = analysis.duration;
+      push(`I've recorded the duration as ${analysis.duration}.`);
+    } else if (state.duration !== analysis.duration) {
+      state.duration = analysis.duration;
+      push(`Thanks for the update — I've changed the duration to ${analysis.duration}.`);
+    }
+    state.durationPrompted = false;
   }
-  if (analysis.who && !state.who) {
-    state.who = analysis.who;
-    updated = true;
+  if (analysis.who) {
+    if (!state.who) {
+      state.who = analysis.who;
+      push(`I've noted this is for ${analysis.who}.`);
+    } else if (state.who !== analysis.who) {
+      state.who = analysis.who;
+      push(`Thanks for clarifying — I'll note this is for ${analysis.who}.`);
+    }
   }
-  if (analysis.action && !state.action) {
-    state.action = analysis.action;
-    updated = true;
+  if (analysis.action) {
+    const previousAction = state.action;
+    const merged = mergeFreeText(previousAction, analysis.action);
+    if (merged && merged !== previousAction) {
+      state.action = merged;
+      if (isNoneValue(merged)) {
+        push("I've noted that nothing has been tried yet.");
+      } else if (!previousAction || isNoneValue(previousAction)) {
+        push(`I've recorded that you've already tried ${merged}.`);
+      } else {
+        push(`Thanks for the extra detail — I'll note you've tried ${merged}.`);
+      }
+    }
   }
-  if (analysis.meds && !state.meds) {
-    state.meds = analysis.meds;
-    updated = true;
+  if (analysis.meds) {
+    const previousMeds = state.meds;
+    const mergedMeds = mergeFreeText(previousMeds, analysis.meds);
+    if (mergedMeds && mergedMeds !== previousMeds) {
+      state.meds = mergedMeds;
+      if (isNoneValue(mergedMeds)) {
+        push("I've noted that no other regular medicines are in use.");
+      } else {
+        push(`I've noted that you're currently taking ${mergedMeds}.`);
+      }
+    }
   }
-  return updated;
+  return updates;
 }
 
 function addFlag(message) {
-  if (!message) return;
-  if (!state.flags.includes(message)) state.flags.push(message);
+  if (!message) return false;
+  if (!state.flags.includes(message)) {
+    state.flags.push(message);
+    return true;
+  }
+  return false;
 }
 
 // More precise extraction to catch specific answers
@@ -398,13 +659,21 @@ function fillSlotFromText(text, currentStep) {
     if (/pregnant|pregnancy|expecting/i.test(t)) return 'pregnant';
     if (/breastfeeding|nursing/i.test(t)) return 'breastfeeding';
   }
-  
+
+  if (currentStep === 'condition') {
+    const mentions = detectConditionMentions(text);
+    if (mentions.length === 1) return mentions[0];
+    const trimmed = t.replace(/\s+/g, ' ').trim();
+    for (const [key, label] of Object.entries(CONDITION_LABELS)) {
+      if (trimmed === label.toLowerCase() || trimmed === key || trimmed === label.replace(/\s+/g, '')) {
+        return key;
+      }
+    }
+  }
+
   if (currentStep === 'duration') {
-    if (/<\s*24\s*hours?|today|this morning|few hours/i.test(t)) return '< 24 hours';
-    if (/1.?3\s*days?|couple.*days?|few.*days?/i.test(t)) return '1–3 days';
-    if (/4.?7\s*days?|about.*week|nearly.*week/i.test(t)) return '4–7 days';
-    if (/>.*7\s*days?|over.*week|more.*week|weeks?|months?/i.test(t)) return '> 7 days';
-    if (/recurrent|recurring|on.*off|comes.*goes/i.test(t)) return 'Recurrent / frequent';
+    const bucket = extractDuration(text);
+    if (bucket) return bucket;
   }
   
   if (currentStep === 'action') {
@@ -422,45 +691,133 @@ function fillSlotFromText(text, currentStep) {
 }
 
 function evaluateSafety(text) {
-  const t = text.toLowerCase();
-  
+  const t = (text || '').toLowerCase();
+  const newFlags = [];
+
   // Check for red flags based on condition and general symptoms
   if (state.condition === 'headache' && /worst.ever|thunderclap|head.injury|weakness|confusion|vision/i.test(t)) {
-    addFlag('Headache red flags — seek urgent advice (pharmacist/GP/111).');
+    if (addFlag('Headache red flags — seek urgent advice (pharmacist/GP/111).')) newFlags.push('Headache red flags — seek urgent advice (pharmacist/GP/111).');
   }
   if (state.condition === 'indigestion' && /trouble.swallow|vomit.*blood|black.stool|severe.pain/i.test(t)) {
-    addFlag('Indigestion red flags — urgent medical assessment needed.');
+    if (addFlag('Indigestion red flags — urgent medical assessment needed.')) newFlags.push('Indigestion red flags — urgent medical assessment needed.');
   }
   if (state.condition === 'diarrhoea' && /blood|high.fever|severe.pain|week/i.test(t)) {
-    addFlag('Diarrhoea red flags — seek medical advice.');
+    if (addFlag('Diarrhoea red flags — seek medical advice.')) newFlags.push('Diarrhoea red flags — seek medical advice.');
   }
 
   // General emergency symptoms
-  if(/chest.pain|can.?t.breathe|collapse|vomit.*blood/i.test(t)) {
-    addFlag('Emergency symptoms — call 999 or go to A&E immediately.');
+  if(/chest.pain|can.?t.breathe|collapse|vomit.*blood|faint(ed)?|passed.?out|stiff neck|purple.rash|glass.test|seizure/i.test(t)) {
+    if (addFlag('Emergency symptoms — call 999 or go to A&E immediately.')) newFlags.push('Emergency symptoms — call 999 or go to A&E immediately.');
   }
+
+  return newFlags;
+}
+
+function respondToRedFlags(redFlags){
+  const trimmed = (redFlags || []).map(item => item.replace(/[.?!]+$/, ''));
+  const detail = trimmed.length ? `That sounds potentially serious (${joinWithAnd(trimmed)}).` : 'That sounds potentially serious.';
+  const guidance = ' Please seek urgent medical help from NHS 111, your GP, or 999/A&E if symptoms are severe. I will not recommend over-the-counter medicines until a healthcare professional has reviewed things.';
+  botSpeak(detail + guidance);
+}
+
+function promptDurationClarification(){
+  const prompt = "I heard you mention how long it's been, but to keep the advice safe I need to log it as one of these options: < 24 hours, 1–3 days, 4–7 days, > 7 days, or recurrent. Which fits best?";
+  const t = addTyping();
+  setTimeout(() => replaceTyping(t, prompt), 700);
+  showRelevantChips('duration');
 }
 
 // ---------- Flow Control ----------
 function greet(){
-  botSpeak(getRandomResponse(RESPONSES.greetings));
+  ORIENTATION_MESSAGES.forEach((msg, idx) => {
+    setTimeout(() => botSpeak(msg), idx * 2000);
+  });
+  setTimeout(() => botSpeak(getRandomResponse(RESPONSES.greetings)), ORIENTATION_MESSAGES.length * 2000);
   state.step = 'chat';
 }
 
 function handleUserMessage(text){
-  // Add what they're saying to the description
   if (text) state.what = state.what ? state.what + ' ' + text : text;
-  
-  // If we're waiting for a specific answer, try to fill that slot first
+
+  const rule = checkOffTopic(text);
+  if (rule) {
+    botSpeak(rule.message);
+    clearSuggestionChips();
+    return;
+  }
+
+  if (text && SUMMARY_TRIGGER.test(text)) {
+    clearSuggestionChips();
+    handleRecapRequest();
+    return;
+  }
+
+  if (maybeHandleClosure(text)) {
+    clearSuggestionChips();
+    return;
+  }
+
+  const whoMentions = detectWhoMentions(text);
+  if (whoMentions.length > 1) {
+    state.who = null;
+    state.currentQuestion = 'who';
+    botSpeak(`I heard more than one set of patient details (${joinWithAnd(whoMentions)}). Please choose the single option that matches who needs help.`);
+    showRelevantChips('who');
+    return;
+  }
+  if (state.who && whoMentions.length === 1 && state.who !== whoMentions[0]) {
+    state.who = null;
+    state.currentQuestion = 'who';
+    botSpeak(`Thanks for the update. Should I switch the advice to ${whoMentions[0]} instead? Pick the option that fits best so I can be sure.`);
+    showRelevantChips('who');
+    return;
+  }
+  if (state.currentQuestion === 'who' && text && !whoMentions.length) {
+    botSpeak('To keep you safe I need to know who the advice is for. Please choose one option such as adult, teen 13–17, child 5–12, toddler 1–4, infant <1, pregnant, or breastfeeding.');
+    showRelevantChips('who');
+    return;
+  }
+
+  const conditionMentions = detectConditionMentions(text);
+  if (conditionMentions.length > 1) {
+    state.condition = null;
+    state.currentQuestion = 'condition';
+    const labels = conditionMentions.map(key => CONDITION_LABELS[key] || key);
+    botSpeak(`I spotted a few different symptoms (${joinWithAnd(labels)}). Tell me which one you'd like me to focus on first.`);
+    showRelevantChips('condition');
+    return;
+  }
+  if (state.condition && conditionMentions.length === 1 && state.condition !== conditionMentions[0]) {
+    state.condition = null;
+    state.currentQuestion = 'condition';
+    const label = CONDITION_LABELS[conditionMentions[0]] || conditionMentions[0];
+    botSpeak(`Just to double-check: should we focus on ${label} instead? Choose the condition so I can keep the advice accurate.`);
+    showRelevantChips('condition');
+    return;
+  }
+  if (state.currentQuestion === 'condition' && text && !conditionMentions.length) {
+    botSpeak("I don't have data for that concern. I can help with headache, hay fever, heartburn, diarrhoea, sore throat, common cold, cough, or constipation. Which of those fits best?");
+    showRelevantChips('condition');
+    return;
+  }
+
   if (state.currentQuestion) {
     const slotValue = fillSlotFromText(text, state.currentQuestion);
     if (slotValue) {
-      state[state.currentQuestion] = slotValue;
+      const key = state.currentQuestion;
+      state[key] = slotValue;
       state.currentQuestion = null;
-      const ack = getRandomResponse(RESPONSES.acknowledgments);
-      botSpeak(ack, { delay: 300 });
-      
-      // Continue to next question after acknowledgment
+      let ack = null;
+      if (key === 'who') ack = `Thanks, I've noted this is for ${slotValue}.`;
+      else if (key === 'duration') {
+        state.durationPrompted = false;
+        ack = `Thanks, I've recorded the duration as ${slotValue}.`;
+      }
+      else if (key === 'action') ack = slotValue === 'none' ? "Thanks, I've noted that nothing has been tried yet." : `Thanks, I've noted you've already tried ${slotValue}.`;
+      else if (key === 'meds') ack = slotValue === 'none' ? "Thanks, I've recorded that there are no other regular medicines in use." : `Thanks, I've noted the regular medicines: ${slotValue}.`;
+      if (ack) botSpeak(ack, { delay: 300 });
+      else botSpeak(getRandomResponse(RESPONSES.acknowledgments), { delay: 300 });
+
       setTimeout(() => {
         const next = getNextQuestion();
         if (next.type === 'safety') {
@@ -475,46 +832,110 @@ function handleUserMessage(text){
       return;
     }
   }
-  
-  // Analyze their message for any info we can extract
+
   const analysis = analyzeMessage(text);
-  const foundSomething = updateStateFromAnalysis(analysis);
-  
-  // Add any red flags found
+  const updates = updateStateFromAnalysis(analysis);
+
+  const newFlags = [];
   if (analysis.redFlags.length) {
-    analysis.redFlags.forEach(addFlag);
+    analysis.redFlags.forEach(flag => {
+      if (addFlag(flag)) newFlags.push(flag);
+    });
   }
-  
-  // If we found something new, acknowledge it
-  if (foundSomething) {
-    const ack = getRandomResponse(RESPONSES.acknowledgments);
-    setTimeout(() => botSpeak(ack, { delay: 300 }), 200);
+
+  const safetyFlags = evaluateSafety(text);
+  if (safetyFlags.length) {
+    newFlags.push(...safetyFlags);
   }
-  
-  // Check if we have everything we need
+
+  if (newFlags.length) {
+    respondToRedFlags(newFlags);
+    clearSuggestionChips();
+    state.currentQuestion = null;
+    state.step = 'safety';
+    handleSafetyCheck(text, { skipRedFlagMessage: true });
+    return;
+  }
+
+  if (updates.length) {
+    const ack = buildAcknowledgement(updates);
+    if (ack) {
+      setTimeout(() => botSpeak(ack, { delay: 300 }), 200);
+    }
+  }
+
+  if (analysis.ambiguousDuration) {
+    if (state.duration) state.duration = null;
+    state.currentQuestion = 'duration';
+    state.durationPrompted = true;
+    promptDurationClarification();
+    return;
+  }
+
   const next = getNextQuestion();
-  
+
   if (next.type === 'safety') {
-    // We have all WWHAM info, now do safety check
     state.step = 'safety';
     state.currentQuestion = null;
     const t = addTyping();
-    setTimeout(() => replaceTyping(t, next.text), 800);
+    setTimeout(() => replaceTyping(t, next.text), updates.length ? 1200 : 800);
+    clearSuggestionChips();
     return;
   }
-  
-  // Ask the next question and remember what we're asking
+
   state.currentQuestion = next.type;
-  const delay = foundSomething ? 1200 : 800;
+  const delay = updates.length ? 1200 : 800;
   const t = addTyping();
   setTimeout(() => replaceTyping(t, next.text), delay);
-  
-  // Show helpful suggestion chips
+
   showRelevantChips(next.type);
 }
 
-function handleSafetyCheck(text){
-  evaluateSafety(text);
+async function handleSafetyCheck(text, opts = {}){
+  const analysis = analyzeMessage(text || '');
+  const updates = updateStateFromAnalysis(analysis);
+
+  const newFlags = [];
+  if (analysis.redFlags.length) {
+    analysis.redFlags.forEach(flag => {
+      if (addFlag(flag)) newFlags.push(flag);
+    });
+  }
+
+  const safetyFlags = evaluateSafety(text);
+  if (safetyFlags.length) {
+    newFlags.push(...safetyFlags);
+  }
+
+  if (newFlags.length && !opts.skipRedFlagMessage) {
+    respondToRedFlags(newFlags);
+  }
+
+  const skipAck = opts.skipRedFlagMessage && newFlags.length > 0;
+
+  if (updates.length && !skipAck) {
+    const ack = buildAcknowledgement(updates);
+    if (ack) {
+      setTimeout(() => botSpeak(ack, { delay: 300 }), 200);
+    }
+  }
+
+  if (analysis.ambiguousDuration) {
+    state.step = 'chat';
+    state.currentQuestion = 'duration';
+    state.durationPrompted = true;
+    if (state.duration) state.duration = null;
+    promptDurationClarification();
+    return;
+  }
+
+  if (!state.duration) {
+    state.step = 'chat';
+    state.currentQuestion = 'duration';
+    state.durationPrompted = true;
+    promptDurationClarification();
+    return;
+  }
 
   // Generate final advice
   const payload = {
@@ -529,13 +950,34 @@ function handleSafetyCheck(text){
 
   state.lastPayload = payload;
 
-  const result = window.Engine?.evaluate ? window.Engine.evaluate(payload) : {
-    title:'General', advice:[], selfCare:[], cautions:[], flags:[]
-  };
+  let result;
+  try {
+    if (window.Engine?.ready) {
+      await window.Engine.ready();
+    }
+    result = window.Engine?.evaluate ? window.Engine.evaluate(payload) : {
+      title:'General', advice:[], selfCare:[], cautions:[], flags:[]
+    };
+  } catch (err) {
+    console.error('Engine evaluation error', err);
+    const message = `System issue: ${err.message}. Please speak with a pharmacist or try again later.`;
+    result = {
+      title: 'General',
+      advice: [],
+      selfCare: [],
+      cautions: [message],
+      warnings: [message],
+      flags: [],
+      error: err.message
+    };
+  }
 
   // Merge our flags with engine flags
   result.flags = Array.from(new Set([...(result.flags||[]), ...state.flags]));
   result.cautions = Array.from(new Set([...(result.cautions||[]), ...state.cautions]));
+  if (!Array.isArray(result.warnings)) {
+    result.warnings = [];
+  }
 
   showFinalAdvice(result, payload);
 }
@@ -686,6 +1128,10 @@ function showFinalAdvice(result, payload) {
     
     let finalHtml = summaryHtml + medAdvice;
 
+    if (result.error) {
+      finalHtml = `<div class="med-summary"><h3>⚠️ System notice</h3><p>Something went wrong loading the full dataset (${result.error}). Please speak with a pharmacist or try again later before taking any new medicine.</p></div>` + finalHtml;
+    }
+
     if (result.cautions?.length) {
       finalHtml += `<h4 style="color: #d97706; margin: 12px 0 6px 0;">⚠️ Cautions</h4>${bullets(result.cautions)}<br><br>`;
     }
@@ -697,6 +1143,8 @@ function showFinalAdvice(result, payload) {
     finalHtml += `<div style="background: #f0f9ff; border: 1px solid #0ea5e9; border-radius: 8px; padding: 12px; margin: 12px 0;">
       <p style="margin: 0; color: #0c4a6e;"><strong>Next Steps:</strong> You can ask me more questions or start a new consultation.</p>
     </div>`;
+
+    finalHtml += buildReminderBlock();
 
     const llmSummary = await fetchLLMSummary(payload || state.lastPayload || {}, result);
     if (llmSummary) {

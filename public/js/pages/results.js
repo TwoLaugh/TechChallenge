@@ -213,6 +213,7 @@
     if (!state) return '<p class="text-gray-600">No patient details available.</p>';
     const items = [
       { label: 'Condition', value: state.condition || '-' },
+      { label: 'What', value: state.what || '-' },
       { label: 'Who', value: state.who || '-' },
       { label: 'Duration', value: state.duration || '-' },
       { label: 'Current meds', value: state.meds || '-' },

@@ -4,9 +4,9 @@ class StateManager {
         // Save each piece of state individually
         sessionStorage.setItem('condition', state.condition);
         sessionStorage.setItem('who', state.who);
-        sessionStorage.setItem('what', state.what);
-        sessionStorage.setItem('duration', state.duration);
-        sessionStorage.setItem('meds', state.meds);
+        sessionStorage.setItem('what', state.what ?? '');
+        sessionStorage.setItem('duration', state.duration ?? '');
+        sessionStorage.setItem('meds', state.meds ?? '');
         sessionStorage.setItem('action', state.action ?? '');
         sessionStorage.setItem('answers', JSON.stringify(state.answers || {}));
         sessionStorage.setItem('flags', JSON.stringify(state.flags || []));

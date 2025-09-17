@@ -12,6 +12,27 @@ function go(to) {
 }
 let current = 1;
 
+function validateCurrentStep() {
+  const stepEl = steps.find(s => s.dataset.step === String(current));
+  if (!stepEl) return true;
+
+  const fields = stepEl.querySelectorAll('input, select, textarea');
+  for (const field of fields) {
+    if (field.disabled) continue;
+    if (!field.checkValidity()) {
+      if (typeof field.reportValidity === 'function') {
+        field.reportValidity();
+      } else {
+        form?.reportValidity?.();
+      }
+      field.focus?.();
+      return false;
+    }
+  }
+
+  return true;
+}
+
 // Clear any persisted results when starting a fresh check
 window.StateManager?.clearState?.();
 
@@ -19,7 +40,7 @@ form?.addEventListener('click', (e) => {
   const nextBtn = e.target.closest('.next');
   const prevBtn = e.target.closest('.prev');
   if (nextBtn) {
-    if (!form.reportValidity()) return;
+    if (!validateCurrentStep()) return;
     if (current === 2) injectConditionQuestions(); // build step 3
     if (current === 3) buildReview();              // build step 4
     go(Math.min(current + 1, 4));

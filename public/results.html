@@ -7,10 +7,9 @@
     <link rel="stylesheet" href="css/style.css" />
     <link rel="stylesheet" href="css/chat.css" />
     <link rel="stylesheet" href="css/check.css" />
-    <!-- Tailwind CSS (if your build already injects styles, this is harmless) -->
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="css/results.css" />
 </head>
-<body class="bg-gray-50 text-gray-900">
+<body class="results-page bg-gray-50 text-gray-900">
     <main class="container mx-auto max-w-4xl px-4 py-6">
         <div class="container">
             <div class="text-center py-8">
@@ -29,8 +28,7 @@
 </body>
 <!--
 Notes:
-- The page includes Tailwind via CDN to ensure the utility classes used by results.js render.
-- If your build pipeline already bundles Tailwind, you can remove the CDN link.
+- Utility-style classes are bundled locally in css/results.css so this page works offline.
 - results.js will bootstrap sections if placeholders are not present.
 -->
 </html>

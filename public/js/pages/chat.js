@@ -118,6 +118,30 @@ const CONDITION_PATTERNS = {
     /pain.*swallow/i,
     /throat.*raw/i,
     /scratchy.*throat/i
+  ],
+  commoncold: [
+    /common.*cold/i,
+    /blocked.*nose/i,
+    /stuffy/i,
+    /congestion/i,
+    /sniffles/i,
+    /(runny|streaming).*nose/i
+  ],
+  cough: [
+    /cough/i,
+    /tickly.*throat/i,
+    /chesty/i,
+    /(phlegm|sputum)/i,
+    /hacking/i,
+    /whooping/i
+  ],
+  constipation: [
+    /constipation/i,
+    /hard.*stool/i,
+    /no.*bowel/i,
+    /straining/i,
+    /not.*(poo|go)/i,
+    /bowel.*stuck/i
   ]
 };
 
@@ -209,7 +233,10 @@ const RESPONSES = {
     hayfever: "Any pregnancy, breastfeeding, or health conditions I should know about?",
     indigestion: "Are you having trouble swallowing, or any severe pain?",
     diarrhoea: "Is there any blood, high fever, or has this been going on more than a week?",
-    sorethroat: "Any high fever, trouble swallowing, or has this lasted over a week?"
+    sorethroat: "Any high fever, trouble swallowing, or has this lasted over a week?",
+    commoncold: "Any chest tightness, shortness of breath, or symptoms lasting longer than 10 days?",
+    cough: "Have you had this cough for more than 3 weeks, or are you breathless or coughing up blood?",
+    constipation: "Any severe stomach pain, vomiting, or blood when you go to the toilet?"
   }
 };
 
@@ -539,7 +566,7 @@ function showRelevantChips(type) {
   const chips = {
     who: ['adult','teen 13–17','child 5–12','toddler 1–4','infant <1','pregnant','breastfeeding'],
     duration: ['< 24 hours','1–3 days','4–7 days','> 7 days','recurrent'],
-    condition: ['headache','hay fever','heartburn','diarrhoea','sore throat'],
+    condition: ['headache','hay fever','heartburn','diarrhoea','sore throat','common cold','cough','constipation'],
     action: ['none','paracetamol','rest','fluids','antacid'],
     meds: ['none','ibuprofen','antihistamine','paracetamol']
   };
@@ -574,6 +601,27 @@ function showFinalAdvice(result, payload) {
         if (med.ingredient) medAdvice += `<p class="med-meta"><strong>Active ingredient:</strong> ${med.ingredient}</p>`;
         if (med.description) medAdvice += `<p class="med-meta"><em>${med.description}</em></p>`;
         if (med.dosage) medAdvice += `<p><strong>Dosage:</strong> ${med.dosage}</p>`;
+        if (med.ageLimits) {
+          const bits = [];
+          if (med.ageLimits.min_years != null) bits.push(`Minimum age ${med.ageLimits.min_years} years`);
+          if (med.ageLimits.max_years != null) bits.push(`Maximum age ${med.ageLimits.max_years} years`);
+          if (med.ageLimits.note) bits.push(med.ageLimits.note);
+          if (bits.length) medAdvice += `<p><strong>Age guidance:</strong> ${bits.join(' · ')}</p>`;
+        }
+        if (Array.isArray(med.pediatric) && med.pediatric.length) {
+          medAdvice += '<details class="peds"><summary>Paediatric dosing</summary><ul>';
+          med.pediatric.forEach(entry => {
+            if (typeof entry === 'string') {
+              medAdvice += `<li>${entry}</li>`;
+            } else if (entry) {
+              const label = entry.age_range ? `<strong>${entry.age_range}:</strong> ` : '';
+              const extra = entry.max_daily ? ` (max ${entry.max_daily})` : '';
+              const text = entry.dose || entry.guidance || '';
+              medAdvice += `<li>${label}${text}${extra}</li>`;
+            }
+          });
+          medAdvice += '</ul></details>';
+        }
         if (Array.isArray(med.rationale) && med.rationale.length) {
           medAdvice += `<details class="rationale"><summary>Why this appears suitable</summary><ul>`+
             med.rationale.map(r=>`<li>${r}</li>`).join('') + `</ul></details>`;

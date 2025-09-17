@@ -357,5 +357,191 @@
         "message": "Sore throats lasting longer than a week require GP review."
       }
     ]
+  },
+  "commoncold": {
+    "title": "Common cold safety check",
+    "questions": [
+      {
+        "type": "radio",
+        "name": "breathing",
+        "label": "Any shortness of breath, chest pain, or wheeze?",
+        "options": ["Yes", "No"]
+      },
+      {
+        "type": "radio",
+        "name": "fever",
+        "label": "Fever above 39°C or lasting longer than 3 days?",
+        "options": ["Yes", "No"]
+      },
+      {
+        "type": "radio",
+        "name": "duration",
+        "label": "How long have the symptoms lasted?",
+        "options": ["< 3 days", "4-10 days", "> 10 days"]
+      },
+      {
+        "type": "radio",
+        "name": "sinus",
+        "label": "Severe facial pain, swelling around the eyes, or very thick green discharge?",
+        "options": ["Yes", "No"]
+      },
+      {
+        "type": "radio",
+        "name": "childRisk",
+        "label": "Is this for a child under 2 who is feeding poorly or showing dehydration?",
+        "options": ["Yes", "No"]
+      }
+    ],
+    "alerts": [
+      {
+        "field": "breathing",
+        "equals": "Yes",
+        "message": "Breathlessness or chest pain needs urgent assessment (GP/111/A&E)."
+      },
+      {
+        "field": "fever",
+        "equals": "Yes",
+        "message": "High or persistent fever may indicate influenza or other infection – seek medical advice."
+      },
+      {
+        "field": "duration",
+        "equals": "> 10 days",
+        "message": "Colds lasting more than 10 days should be reviewed for sinusitis or secondary infection."
+      },
+      {
+        "field": "sinus",
+        "equals": "Yes",
+        "message": "Severe facial pain/swelling can signal sinus infection – book a same-day GP review."
+      },
+      {
+        "field": "childRisk",
+        "equals": "Yes",
+        "message": "Infants with poor feeding or dehydration need GP/111 assessment."
+      }
+    ]
+  },
+  "cough": {
+    "title": "Cough safety check",
+    "questions": [
+      {
+        "type": "radio",
+        "name": "duration",
+        "label": "How long has the cough lasted?",
+        "options": ["< 1 week", "1-3 weeks", "> 3 weeks"]
+      },
+      {
+        "type": "radio",
+        "name": "blood",
+        "label": "Any blood in sputum or rust-coloured phlegm?",
+        "options": ["Yes", "No"]
+      },
+      {
+        "type": "radio",
+        "name": "breathless",
+        "label": "Experiencing breathlessness, chest tightness, or wheeze?",
+        "options": ["Yes", "No"]
+      },
+      {
+        "type": "radio",
+        "name": "fever",
+        "label": "Fever above 38°C for more than 3 days?",
+        "options": ["Yes", "No"]
+      },
+      {
+        "type": "radio",
+        "name": "history",
+        "label": "History of asthma, COPD, or heart failure with worsening symptoms?",
+        "options": ["Yes", "No"]
+      }
+    ],
+    "alerts": [
+      {
+        "field": "duration",
+        "equals": "> 3 weeks",
+        "message": "Coughs persisting longer than 3 weeks require GP review."
+      },
+      {
+        "field": "blood",
+        "equals": "Yes",
+        "message": "Coughing up blood needs same-day medical assessment."
+      },
+      {
+        "field": "breathless",
+        "equals": "Yes",
+        "message": "Breathlessness or chest tightness needs urgent care (111/A&E if severe)."
+      },
+      {
+        "field": "fever",
+        "equals": "Yes",
+        "message": "Persistent fever can signal infection – arrange medical review."
+      },
+      {
+        "field": "history",
+        "equals": "Yes",
+        "message": "Existing lung/heart conditions with worsening cough should be reviewed by a clinician."
+      }
+    ]
+  },
+  "constipation": {
+    "title": "Constipation safety check",
+    "questions": [
+      {
+        "type": "radio",
+        "name": "duration",
+        "label": "How long since the last comfortable bowel movement?",
+        "options": ["< 3 days", "3-7 days", "> 7 days"]
+      },
+      {
+        "type": "radio",
+        "name": "pain",
+        "label": "Severe abdominal pain, vomiting, or bloating?",
+        "options": ["Yes", "No"]
+      },
+      {
+        "type": "radio",
+        "name": "bleeding",
+        "label": "Any unexplained rectal bleeding or weight loss?",
+        "options": ["Yes", "No"]
+      },
+      {
+        "type": "radio",
+        "name": "meds",
+        "label": "Taking opioid painkillers, anticholinergics, or iron tablets?",
+        "options": ["Yes", "No"]
+      },
+      {
+        "type": "radio",
+        "name": "child",
+        "label": "Is this for a child under 12 with severe pain or vomiting?",
+        "options": ["Yes", "No"]
+      }
+    ],
+    "alerts": [
+      {
+        "field": "duration",
+        "equals": "> 7 days",
+        "message": "Constipation lasting more than a week should be assessed by a clinician."
+      },
+      {
+        "field": "pain",
+        "equals": "Yes",
+        "message": "Severe abdominal pain, vomiting, or swelling needs urgent medical review."
+      },
+      {
+        "field": "bleeding",
+        "equals": "Yes",
+        "message": "Unexplained rectal bleeding or weight loss requires urgent GP assessment."
+      },
+      {
+        "field": "meds",
+        "equals": "Yes",
+        "message": "Medication-related constipation may need tailored management – speak to a pharmacist or GP."
+      },
+      {
+        "field": "child",
+        "equals": "Yes",
+        "message": "Children with constipation and pain/vomiting need medical advice before OTC treatment."
+      }
+    ]
   }
 }

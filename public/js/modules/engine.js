@@ -1,4 +1,5 @@
-(function(){
+/* global module */
+(function(global){
   const DATA_URL = 'data/bnf.json';
   const COUNSELLING_URL = 'data/bnf_counselling.json';
 
@@ -7,7 +8,7 @@
   let loadingError = null;
 
   // Kick off both fetches up-front; when both are ready, enrich dataset
-  Promise.all([fetch(DATA_URL), fetch(COUNSELLING_URL)])
+  const datasetPromise = Promise.all([fetch(DATA_URL), fetch(COUNSELLING_URL)])
     .then(async ([rBNF, rCX]) => {
       if (!rBNF.ok) throw new Error('Failed to load BNF dataset');
       const bnf = await rBNF.json();
@@ -60,26 +61,40 @@
       }
 
       dataset = bnf;
+      return dataset;
     })
     .catch(err => {
       loadingError = err;
       console.error('Failed to initialise datasets', err);
+      throw err;
     });
+
+  function ready(){
+    if (dataset) return Promise.resolve(dataset);
+    if (loadingError) return Promise.reject(loadingError);
+    return datasetPromise;
+  }
 
   const condMap = {
     headache: 'headache-simple',
     hayfever: 'allergic-rhinitis',
     indigestion: 'dyspepsia-heartburn',
     diarrhoea: 'acute-diarrhoea',
-    sorethroat: 'sore-throat-acute'
+    sorethroat: 'sore-throat-acute',
+    commoncold: 'common-cold',
+    cough: 'cough-acute',
+    constipation: 'constipation'
   };
 
   function getDetails(payload){
     const map = {
       'adult': {age:30},
       'teen 13–17': {age:15},
+      'teen 13-17': {age:15},
       'child 5–12': {age:8},
+      'child 5-12': {age:8},
       'toddler 1–4': {age:3},
+      'toddler 1-4': {age:3},
       'infant <1': {age:0.5},
       'pregnant': {age:30, pregnant:true},
       'breastfeeding': {age:30, breastfeeding:true}
@@ -209,6 +224,9 @@
       trace.included = true;
       trace.reasons.push('Not previously tried');
       trace.reasons.push(option.typical_use ? `Typical use: ${option.typical_use}` : 'Typical use aligns with condition');
+      if(option.age_limits?.note){
+        trace.reasons.push(`Age guidance: ${option.age_limits.note}`);
+      }
       if(option.why) trace.reasons.push(...option.why.map(w=>'Why: '+w));
       if(option.dose_adult) trace.reasons.push('Adult dose reference included');
       rationaleMap[medicationName] = trace.reasons.slice();
@@ -226,12 +244,16 @@
       const option = condition.options.find(opt =>
         opt.example_products?.[0] === medName || opt.class_name === medName
       );
+      const pediatric = Array.isArray(option?.pediatric_dosing) ? option.pediatric_dosing : [];
+      const ageLimits = option?.age_limits || null;
       return {
         name: String(medName),
         ingredient: option?.active_ingredient || 'Various active ingredients',
         description: option?.description || 'Follow package instructions carefully',
         dosage: option?.dosage_note || 'As directed on package',
-    rationale: rationaleMap[medName] || [],
+        ageLimits,
+        pediatric,
+        rationale: rationaleMap[medName] || [],
         usage: [
           'Take exactly as directed on the package',
           'Do not exceed the recommended dose',
@@ -366,5 +388,9 @@
     return dataset.conditions.find(c=> c.id === condId) || null;
   }
 
-  window.Engine = { evaluate, getConditionMeta };
-})();
+  const EngineAPI = { evaluate, getConditionMeta, ready };
+  global.Engine = EngineAPI;
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = EngineAPI;
+  }
+})(typeof window !== 'undefined' ? window : globalThis);

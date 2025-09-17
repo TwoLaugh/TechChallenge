@@ -106,6 +106,7 @@ The backend server provides LLM integration for enhanced chat experiences:
 npm run lint          # Check for code issues
 npm run lint:fix      # Auto-fix issues
 npm run format        # Format code with Prettier
+npm test              # Run Vitest unit/integration suites
 ```
 
 ### File Organization

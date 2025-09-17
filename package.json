@@ -10,7 +10,8 @@
     "lint:fix": "eslint \"public/js/**/*.js\" --fix",
     "format": "prettier --write .",
     "check:format": "prettier --check .",
-    "start:server": "cd server && npm start"
+    "start:server": "cd server && npm start",
+    "test": "vitest run"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
@@ -18,6 +19,9 @@
     "eslint-plugin-import": "^2.29.1",
     "eslint-plugin-jsdoc": "^46.8.2",
     "eslint-plugin-promise": "^6.1.1",
-    "prettier": "^3.3.3"
+    "prettier": "^3.3.3",
+    "supertest": "^6.3.3",
+    "vitest": "^1.6.0",
+    "node-fetch": "^3.3.2"
   }
 }

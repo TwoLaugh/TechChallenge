@@ -11,6 +11,8 @@ class StateManager {
         sessionStorage.setItem('answers', JSON.stringify(state.answers || {}));
         sessionStorage.setItem('flags', JSON.stringify(state.flags || []));
         sessionStorage.setItem('cautions', JSON.stringify(state.cautions || []));
+        sessionStorage.setItem('warnings', JSON.stringify(state.warnings || []));
+        sessionStorage.setItem('escalated', state.escalated ? 'true' : 'false');
     }
 
     static getStoredState() {
@@ -23,7 +25,9 @@ class StateManager {
             action: sessionStorage.getItem('action'),
             answers: JSON.parse(sessionStorage.getItem('answers') || '{}'),
             flags: JSON.parse(sessionStorage.getItem('flags') || '[]'),
-            cautions: JSON.parse(sessionStorage.getItem('cautions') || '[]')
+            cautions: JSON.parse(sessionStorage.getItem('cautions') || '[]'),
+            warnings: JSON.parse(sessionStorage.getItem('warnings') || '[]'),
+            escalated: sessionStorage.getItem('escalated') === 'true'
         };
     }
 
@@ -37,6 +41,8 @@ class StateManager {
         sessionStorage.removeItem('answers');
         sessionStorage.removeItem('flags');
         sessionStorage.removeItem('cautions');
+        sessionStorage.removeItem('warnings');
+        sessionStorage.removeItem('escalated');
     }
 
     static validateState() {

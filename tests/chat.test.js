@@ -44,7 +44,7 @@ beforeAll(async () => {
 
   analyzeMock = vi.fn(() => ({}));
   window.NLU = { analyze: analyzeMock };
-  window.StateManager = { saveCheckState: vi.fn(), clearState: vi.fn() };
+  window.StateManager = { saveCheckState: vi.fn(), clearState: vi.fn(), getStoredState: vi.fn(() => ({})) };
 
   const chatScriptPath = path.resolve(__dirname, '../public/js/pages/chat.js');
   const chatScript = await readFile(chatScriptPath, 'utf8');
@@ -65,6 +65,13 @@ beforeEach(() => {
   }
   analyzeMock.mockReset();
   analyzeMock.mockReturnValue({});
+  if (window.StateManager?.saveCheckState?.mockClear) {
+    window.StateManager.saveCheckState.mockClear();
+  }
+  if (window.StateManager?.getStoredState?.mockClear) {
+    window.StateManager.getStoredState.mockClear();
+  }
+  window.StateManager?.getStoredState?.mockReturnValue({});
   chatInternals.resetState();
   const messages = document.getElementById('messages');
   if (messages) messages.innerHTML = '';
@@ -160,5 +167,47 @@ describe('chat safety evaluation escalation paths', () => {
     expect(chatInternals.state.escalated).toBe(true);
     expect(chatInternals.state.step).toBe('escalated');
     expect(chatInternals.getNextQuestion()).toBeNull();
+  });
+});
+
+describe('chat persistence handling', () => {
+  it('hydrates stored state and marks escalation for resume', () => {
+    const stored = {
+      who: 'adult',
+      condition: 'headache',
+      duration: '1–3 days',
+      meds: 'none',
+      action: 'rest',
+      what: 'Severe headache',
+      flags: ['Dataset flag'],
+      cautions: ['Caution note'],
+      warnings: ['Warning note'],
+      escalated: true,
+      answers: { example: true }
+    };
+    window.StateManager.getStoredState.mockReturnValue(stored);
+    chatInternals.resetState();
+    const restored = chatInternals.hydrateStateFromStorage();
+    expect(restored).toBe(true);
+    expect(chatInternals.state.who).toBe('adult');
+    expect(chatInternals.state.flags).toContain('Dataset flag');
+    expect(chatInternals.state.resumeEscalation).toBe(true);
+    expect(chatInternals.state.lastAnswers).toEqual({ example: true });
+  });
+
+  it('persists state snapshot including warnings and escalation', () => {
+    chatInternals.resetState();
+    chatInternals.state.who = 'adult';
+    chatInternals.state.condition = 'headache';
+    chatInternals.state.warnings = ['Reminder to seek help'];
+    chatInternals.state.flags = ['Urgent flag'];
+    chatInternals.state.escalated = true;
+    chatInternals.persistState({ answers: { foo: 'bar' } });
+
+    expect(window.StateManager.saveCheckState).toHaveBeenCalled();
+    const payload = window.StateManager.saveCheckState.mock.calls.at(-1)[0];
+    expect(payload.escalated).toBe(true);
+    expect(payload.warnings).toEqual(['Reminder to seek help']);
+    expect(payload.answers).toEqual({ foo: 'bar' });
   });
 });

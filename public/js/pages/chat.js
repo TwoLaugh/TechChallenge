@@ -452,7 +452,10 @@ const state = {
   warnings: [],
   currentQuestion: null, // Track what we're currently asking
   lastPayload: null,
-  escalated: false
+  lastAnswers: {},
+  escalated: false,
+  restored: false,
+  resumeEscalation: false
 };
 
 function resetState() {
@@ -468,7 +471,70 @@ function resetState() {
   state.warnings = [];
   state.currentQuestion = null;
   state.lastPayload = null;
+  state.lastAnswers = {};
   state.escalated = false;
+  state.restored = false;
+  state.resumeEscalation = false;
+}
+
+function persistState(overrides = {}) {
+  const manager = window.StateManager;
+  if (!manager?.saveCheckState) return;
+  const snapshot = {
+    condition: state.condition,
+    who: state.who,
+    what: state.what,
+    duration: state.duration,
+    meds: state.meds,
+    action: state.action,
+    answers: overrides.answers || state.lastAnswers || {},
+    flags: state.flags,
+    cautions: state.cautions,
+    warnings: state.warnings,
+    escalated: state.escalated,
+    ...overrides
+  };
+  state.lastAnswers = snapshot.answers || {};
+  manager.saveCheckState(snapshot);
+}
+
+function hydrateStateFromStorage() {
+  const manager = window.StateManager;
+  if (!manager?.getStoredState) return false;
+  const stored = manager.getStoredState() || {};
+  let hasData = false;
+
+  if (stored.condition) { state.condition = stored.condition; hasData = true; }
+  if (stored.who) { state.who = stored.who; hasData = true; }
+  if (stored.duration) { state.duration = stored.duration; hasData = true; }
+  if (stored.meds) { state.meds = stored.meds; hasData = true; }
+  if (stored.action) { state.action = stored.action; hasData = true; }
+  if (stored.what) { state.what = stored.what; hasData = true; }
+
+  if (Array.isArray(stored.flags) && stored.flags.length) {
+    state.flags = stored.flags.slice();
+    hasData = true;
+  }
+  if (Array.isArray(stored.cautions) && stored.cautions.length) {
+    state.cautions = stored.cautions.slice();
+    hasData = true;
+  }
+  if (Array.isArray(stored.warnings) && stored.warnings.length) {
+    state.warnings = stored.warnings.slice();
+    hasData = true;
+  }
+  if (stored.answers && typeof stored.answers === 'object') {
+    state.lastAnswers = stored.answers;
+  }
+
+  if (stored.escalated) {
+    state.escalated = false;
+    state.resumeEscalation = true;
+    hasData = true;
+  }
+
+  state.restored = hasData;
+  return hasData;
 }
 
 // ---------- Message Analysis ----------
@@ -600,10 +666,12 @@ function triggerEscalation() {
   state.escalated = true;
   state.step = 'escalated';
   state.currentQuestion = null;
+  state.resumeEscalation = false;
   const reasons = state.flags.length ? `Warning sign noted: ${state.flags.join(' ')}` : '';
   const message = `${reasons ? reasons + ' ' : ''}I can't safely recommend an over-the-counter treatment right now. Please speak to a pharmacist, GP, or call NHS 111 as soon as possible. If the person becomes very unwell, call 999 or go to A&E immediately.`;
   botSpeak(message, { delay: 0 });
   clearSuggestionChips();
+  persistState();
 }
 
 function addFlag(message) {
@@ -682,6 +750,51 @@ function evaluateSafety(text) {
 
 // ---------- Flow Control ----------
 function greet(){
+  if (state.resumeEscalation) {
+    triggerEscalation();
+    botSpeak('We left off with urgent warning signs. Please contact a healthcare professional before taking any new medicine.');
+    return;
+  }
+
+  if (state.restored) {
+    const summaryParts = summariseKnownState();
+    if (summaryParts.length) {
+      botSpeak(`Welcome back! I'm still working with ${summaryParts.join(', ')}.`);
+    } else {
+      botSpeak(ORIENTATION_MESSAGES[0]);
+    }
+    botSpeak(ORIENTATION_MESSAGES[1]);
+    botSpeak(ORIENTATION_MESSAGES[2]);
+
+    if (state.warnings.length) {
+      botSpeak(`Previous safety reminders: ${state.warnings.join(' ')}`);
+    }
+
+    const outstanding = describeOutstandingFields();
+    if (outstanding.length) {
+      const copy = [...outstanding];
+      const last = copy.pop();
+      const remainder = copy.length ? `${copy.join(', ')} and ${last}` : last;
+      botSpeak(`To finish up I still need ${remainder}.`);
+    }
+
+    const next = getNextQuestion();
+    if (next) {
+      state.currentQuestion = next.type === 'safety' ? null : next.type;
+      if (next.type === 'safety') {
+        state.step = 'safety';
+      } else {
+        state.step = 'chat';
+      }
+      const typingRow = addTyping();
+      setTimeout(() => replaceTyping(typingRow, next.text), 800);
+      showRelevantChips(next.type);
+    } else {
+      state.step = 'chat';
+    }
+    return;
+  }
+
   ORIENTATION_MESSAGES.forEach((msg, idx) => {
     setTimeout(() => botSpeak(msg), idx * 2000);
   });
@@ -695,10 +808,12 @@ function handleUserMessage(text){
   if (state.escalated) {
     botSpeak('I need a pharmacist or medical professional to take over because of the urgent warning signs we discussed. Please seek help right away.');
     clearSuggestionChips();
+    persistState();
     return;
   }
 
   if (maybeHandleOrientationRequest(text)) {
+    persistState();
     return;
   }
 
@@ -706,17 +821,20 @@ function handleUserMessage(text){
   if (rule) {
     botSpeak(rule.message);
     clearSuggestionChips();
+    persistState();
     return;
   }
 
   if (text && SUMMARY_TRIGGER.test(text)) {
     clearSuggestionChips();
     handleRecapRequest();
+    persistState();
     return;
   }
 
   if (maybeHandleClosure(text)) {
     clearSuggestionChips();
+    persistState();
     return;
   }
 
@@ -726,6 +844,7 @@ function handleUserMessage(text){
     state.currentQuestion = 'who';
     botSpeak(`I heard more than one set of patient details (${joinWithAnd(whoMentions)}). Please choose the single option that matches who needs help.`);
     showRelevantChips('who');
+    persistState();
     return;
   }
   if (state.who && whoMentions.length === 1 && state.who !== whoMentions[0]) {
@@ -733,11 +852,13 @@ function handleUserMessage(text){
     state.currentQuestion = 'who';
     botSpeak(`Thanks for the update. Should I switch the advice to ${whoMentions[0]} instead? Pick the option that fits best so I can be sure.`);
     showRelevantChips('who');
+    persistState();
     return;
   }
   if (state.currentQuestion === 'who' && text && !whoMentions.length) {
     botSpeak('To keep you safe I need to know who the advice is for. Please choose one option such as adult, teen 13–17, child 5–12, toddler 1–4, infant <1, pregnant, or breastfeeding.');
     showRelevantChips('who');
+    persistState();
     return;
   }
 
@@ -748,6 +869,7 @@ function handleUserMessage(text){
     const labels = conditionMentions.map(key => CONDITION_LABELS[key] || key);
     botSpeak(`I spotted a few different symptoms (${joinWithAnd(labels)}). Tell me which one you'd like me to focus on first.`);
     showRelevantChips('condition');
+    persistState();
     return;
   }
   if (state.condition && conditionMentions.length === 1 && state.condition !== conditionMentions[0]) {
@@ -756,11 +878,13 @@ function handleUserMessage(text){
     const label = CONDITION_LABELS[conditionMentions[0]] || conditionMentions[0];
     botSpeak(`Just to double-check: should we focus on ${label} instead? Choose the condition so I can keep the advice accurate.`);
     showRelevantChips('condition');
+    persistState();
     return;
   }
   if (state.currentQuestion === 'condition' && text && !conditionMentions.length) {
     botSpeak("I don't have data for that concern. I can help with headache, hay fever, heartburn, diarrhoea, sore throat, common cold, cough, or constipation. Which of those fits best?");
     showRelevantChips('condition');
+    persistState();
     return;
   }
 
@@ -776,6 +900,7 @@ function handleUserMessage(text){
       }
 
       if (state.escalated) {
+        persistState();
         return;
       }
       let ack = null;
@@ -798,6 +923,7 @@ function handleUserMessage(text){
         setTimeout(() => replaceTyping(t, next.text), 800);
         showRelevantChips(next.type);
       }, 1000);
+      persistState();
       return;
     }
   }
@@ -852,12 +978,14 @@ function handleUserMessage(text){
       setTimeout(() => replaceTyping(typingRow, nextQuestion.text), 800);
       showRelevantChips(nextQuestion.type);
     }
+    persistState();
     return;
   }
 
   const next = getNextQuestion();
 
   if (!next) {
+    persistState();
     return;
   }
 
@@ -867,6 +995,7 @@ function handleUserMessage(text){
     const t = addTyping();
     setTimeout(() => replaceTyping(t, next.text), updates.length ? 1200 : 800);
     clearSuggestionChips();
+    persistState();
     return;
   }
 
@@ -876,18 +1005,21 @@ function handleUserMessage(text){
   setTimeout(() => replaceTyping(t, next.text), delay);
 
   showRelevantChips(next.type);
+  persistState();
 }
 
 async function handleSafetyCheck(text){
   if (state.escalated) {
     botSpeak('I still recommend urgent professional assessment before taking any over-the-counter medicine.');
     clearSuggestionChips();
+    persistState();
     return;
   }
 
   evaluateSafety(text);
 
   if (state.escalated) {
+    persistState();
     return;
   }
 
@@ -903,6 +1035,7 @@ async function handleSafetyCheck(text){
   };
 
   state.lastPayload = payload;
+  state.lastAnswers = payload.answers;
 
   let result;
   try {
@@ -928,6 +1061,7 @@ async function handleSafetyCheck(text){
 
   // Merge our flags with engine flags
   result.flags = Array.from(new Set([...(result.flags||[]), ...state.flags]));
+  state.flags = result.flags.slice();
   result.cautions = Array.from(new Set([...(result.cautions||[]), ...state.cautions]));
   if (!Array.isArray(result.warnings)) {
     result.warnings = [];
@@ -1108,16 +1242,18 @@ function showFinalAdvice(result, payload) {
       finalHtml = `<div class="med-summary"><h3>🤖 Conversation summary</h3>${llmSummary}</div>` + finalHtml;
     }
 
-    window.StateManager?.saveCheckState?.({
+    persistState({
       condition: payload?.condition || state.condition,
       who: payload?.who || state.who,
       what: state.what,
       duration: payload?.duration || state.duration,
       meds: payload?.meds || state.meds,
       action: payload?.action || state.action,
-      answers: payload?.answers || {},
+      answers: payload?.answers || state.lastAnswers || {},
       flags: result.flags || [],
-      cautions: result.cautions || []
+      cautions: result.cautions || [],
+      warnings: state.warnings,
+      escalated: state.escalated
     });
 
     replaceTyping(t, finalHtml + `<div class="chat-actions" style="margin-top: 12px;"><a class="btn btn-primary" href="results.html">View printable results</a></div>`);
@@ -1167,11 +1303,14 @@ if (typeof window !== 'undefined') {
     resetState,
     state,
     detectWhoMentions,
-    textHasAffirmativePattern
+    textHasAffirmativePattern,
+    hydrateStateFromStorage,
+    persistState
   };
 }
 
 // Initialize suggestion chips binding
+hydrateStateFromStorage();
 bindChips();
 
 // Start the conversation
